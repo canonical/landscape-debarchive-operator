@@ -1,0 +1,24 @@
+type: charm
+
+name: debarchive-operator
+title: Debarchive Operator
+
+summary: Charm for installing and using debarchive with Landscape Server.
+description: |
+  Charm used for managing debarchive along with Landscape Server.
+
+platforms:
+  #ubuntu@22.04:amd64:
+  #ubuntu@22.04:arm64:
+  ubuntu@24.04:amd64:
+  ubuntu@24.04:arm64:
+
+parts:
+  charm:
+    plugin: uv
+    source: .
+    build-snaps:
+      - astral-uv
+
+#config:
+#  options:
