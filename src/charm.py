@@ -54,6 +54,7 @@ class DebarchiveOperatorCharm(ops.CharmBase):
 
         except snap.SnapError:
             self.unit.status = ops.BlockedStatus("Failed to apply configuration")
+            return
 
         self.unit.status = ops.ActiveStatus()
 
