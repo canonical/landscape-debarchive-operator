@@ -2,11 +2,10 @@
 
 """Charm the application."""
 
-import logging
-
 import ops
 
 import debarchive
+
 
 class DebarchiveOperatorCharm(ops.CharmBase):
     """Charm the application."""

@@ -1,8 +1,3 @@
-# Copyright 2026 david.mclain@canonical.com
-# See LICENSE file for licensing details.
-#
-# To learn more about testing, see https://documentation.ubuntu.com/ops/latest/explanation/testing/
-
 import pytest
 from ops import testing
 
