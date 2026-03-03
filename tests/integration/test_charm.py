@@ -1,23 +1,38 @@
-import logging
-import pathlib
+import shutil
+from pathlib import Path
 
 import jubilant
 import pytest
 
-logger = logging.getLogger(__name__)
+APP_NAME = "debarchive-operator"
+SNAP_NAME = "landscape-debarchive"
+CHARM_PATH = str(Path("../../debarchive-operator_ubuntu@24.04-amd64.charm").resolve())
 
 
-def test_deploy(charm: pathlib.Path, juju: jubilant.Juju):
-    """Deploy the charm under test."""
-    juju.deploy(charm.resolve(), app="debarchive-operator")
+@pytest.fixture(scope="module")
+def juju():
+    """Create a temporary Juju model for the test run and destroy it after."""
+    with jubilant.temp_model() as juju:
+        yield juju
+
+
+def test_deploy(juju):
+    """Deploy the charm using the Snap-safe common directory."""
+    charm_files = list(Path(".").glob("*.charm"))
+    assert charm_files, "No .charm file found."
+    original_charm_path = charm_files[0].resolve()
+
+    # NOTE: This is only needed for corporate laptops because of the permission
+    # issues with the UID generated. Unsure if this should be kept or for real testing
+    # we just use the normal path?
+    safe_charm_path = Path("/var/snap/juju/common/charm-tests/debarchive.charm")
+    shutil.copy(original_charm_path, safe_charm_path)
+    juju.deploy(str(safe_charm_path))
     juju.wait(jubilant.all_active)
 
 
-# If you implement debarchive.get_version in the charm source,
-# remove the @pytest.mark.skip line to enable this test.
-# Alternatively, remove this test if you don't need it.
-@pytest.mark.skip(reason="debarchive.get_version is not implemented")
-def test_workload_version_is_set(charm: pathlib.Path, juju: jubilant.Juju):
-    """Check that the correct version of the workload is running."""
-    version = juju.status().apps["debarchive-operator"].version
-    assert version == "3.14"  # Replace 3.14 by the expected version of the workload.
+def test_snap_is_installed(juju):
+    """Verify that the snap was actually installed on the unit."""
+    task = juju.exec(f"snap list {SNAP_NAME}", unit=f"{APP_NAME}/0")
+
+    assert SNAP_NAME in task.stdout, f"Snap {SNAP_NAME} not found in output: {task.stdout}"
