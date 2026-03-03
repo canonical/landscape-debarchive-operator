@@ -18,7 +18,7 @@ dependencies = [
 lint = [
     "ruff",
     "codespell",
-    "pyright",
+    "ty>=0.0.20",
 ]
 # Dependencies of unit tests
 unit = [
@@ -79,3 +79,6 @@ include = ["src", "tests"]
 
 [project.optional-dependencies]
 dev = ["tox-uv"]
+
+[tool.ty.rules]
+possibly-missing-attribute = "ignore"
