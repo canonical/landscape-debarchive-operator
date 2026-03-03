@@ -132,6 +132,9 @@ dev = [
 ]
 
 [package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+]
 integration = [
     { name = "jubilant" },
     { name = "pytest" },
@@ -158,6 +161,7 @@ requires-dist = [
 provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=8.4.1" }]
 integration = [
     { name = "jubilant" },
     { name = "pytest" },

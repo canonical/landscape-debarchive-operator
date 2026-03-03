@@ -1,4 +1,4 @@
-import shutil
+import os
 from pathlib import Path
 
 import jubilant
@@ -6,7 +6,6 @@ import pytest
 
 APP_NAME = "debarchive-operator"
 SNAP_NAME = "landscape-debarchive"
-CHARM_PATH = str(Path("../../debarchive-operator_ubuntu@24.04-amd64.charm").resolve())
 
 
 @pytest.fixture(scope="module")
@@ -18,16 +17,13 @@ def juju():
 
 def test_deploy(juju):
     """Deploy the charm using the Snap-safe common directory."""
-    charm_files = list(Path(".").glob("*.charm"))
-    assert charm_files, "No .charm file found."
-    original_charm_path = charm_files[0].resolve()
+    charm_env = os.environ.get("CHARM_PATH")
 
-    # NOTE: This is only needed for corporate laptops because of the permission
-    # issues with the UID generated. Unsure if this should be kept or for real testing
-    # we just use the normal path?
-    safe_charm_path = Path("/var/snap/juju/common/charm-tests/debarchive.charm")
-    shutil.copy(original_charm_path, safe_charm_path)
-    juju.deploy(str(safe_charm_path))
+    if charm_env:
+        charm_path = Path(charm_env).resolve()
+        assert charm_path.exists(), f"Charm not found at CHARM_PATH: {charm_env}"
+
+    juju.deploy(str(charm_path))
     juju.wait(jubilant.all_active)
 
 

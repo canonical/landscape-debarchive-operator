@@ -31,6 +31,9 @@ integration = [
     "jubilant",
     "pytest",
 ]
+dev = [
+    "pytest>=8.4.1",
+]
 
 # Testing tools configuration
 [tool.coverage.run]
