@@ -20,5 +20,9 @@ parts:
     build-snaps:
       - astral-uv
 
-#config:
-#  options:
+config: 
+  options:
+    server-port:
+      default: 8000
+      type: int
+      description: The port deb archive server will listen on.
