@@ -2,10 +2,6 @@
 # See LICENSE file for licensing details.
 name: Lint Charm
 
-concurrency:
-  group: lint-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 on:
   pull_request:
   workflow_call:
@@ -18,11 +14,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Set up Python
-        uses: actions/setup-python@v6
-
-      - name: Install uv
-        run: pipx install uv
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
 
       - name: Install Dependencies
         run: uv sync
