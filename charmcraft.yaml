@@ -1,6 +1,6 @@
 type: charm
 
-name: debarchive-operator
+name: debarchive
 title: Debarchive Operator
 
 summary: Charm for installing and using debarchive with Landscape Server.
@@ -25,4 +25,4 @@ config:
     server-port:
       default: 8000
       type: int
-      description: The port deb archive server will listen on.
+      description: The port debarchive server will listen on.
