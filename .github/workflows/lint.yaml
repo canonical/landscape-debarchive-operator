@@ -2,6 +2,10 @@
 # See LICENSE file for licensing details.
 name: Lint Charm
 
+concurrency:
+  group: unit-test-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   pull_request:
   workflow_call:
