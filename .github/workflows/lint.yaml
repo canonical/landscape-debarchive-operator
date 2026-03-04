@@ -1,0 +1,31 @@
+# Copyright 2025 Canonical Ltd.
+# See LICENSE file for licensing details.
+name: Lint Charm
+
+concurrency:
+  group: lint-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  pull_request:
+  workflow_call:
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+
+      - name: Install uv
+        run: pipx install uv
+
+      - name: Install Dependencies
+        run: uv sync
+
+      - name: Run Lint
+        run: make lint
