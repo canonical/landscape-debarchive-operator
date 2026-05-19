@@ -40,6 +40,7 @@ def test_start(monkeypatch: pytest.MonkeyPatch):
 
     assert state_out.workload_version == "1.0.0"
     assert state_out.unit_status == testing.ActiveStatus()
+
     opened_ports = {p.port for p in state_out.opened_ports}
     assert 8000 in opened_ports
 
@@ -57,6 +58,7 @@ def test_start_no_version(monkeypatch: pytest.MonkeyPatch):
     assert state_out.workload_version == ""
 
     assert state_out.unit_status == testing.ActiveStatus()
+
     opened_ports = {p.port for p in state_out.opened_ports}
     assert 8000 in opened_ports
 
@@ -270,3 +272,121 @@ def test_get_version_debarchive():
 
     assert version is None
     assert isinstance(version, (str, type(None)))
+
+
+def test_configure_database(monkeypatch: pytest.MonkeyPatch):
+    """Test that configure_database sets the correct snap keys and restarts."""
+    mock_snap = MagicMock()
+    mock_cache = MagicMock()
+    mock_cache.__getitem__.return_value = mock_snap
+    monkeypatch.setattr("debarchive.snap.SnapCache", lambda: mock_cache)
+
+    debarchive.configure_database("10.0.0.1", "5432", "user", "pass", "debarchive", "disable")
+
+    mock_snap.set.assert_called_once_with(
+        {
+            "deb.archive.database.host": "10.0.0.1",
+            "deb.archive.database.port": "5432",
+            "deb.archive.database.user": "user",
+            "deb.archive.database.password": "pass",
+            "deb.archive.database.name": "debarchive",
+            "deb.archive.database.ssl": "disable",
+            "deb.archive.database.driver": "pgx",
+        }
+    )
+    mock_snap.restart.assert_called_once()
+
+
+def test_database_created(monkeypatch: pytest.MonkeyPatch):
+    """Test that the charm processes the database credentials and configures the snap."""
+    ctx = testing.Context(DebarchiveOperatorCharm)
+
+    mock_snap = MagicMock()
+    mock_snap.present = True
+
+    mock_cache = MagicMock()
+    mock_cache.__getitem__.return_value = mock_snap
+    monkeypatch.setattr("debarchive.snap.SnapCache", lambda: mock_cache)
+
+    db_rel = testing.Relation(
+        endpoint="database",
+        interface="postgresql_client",
+        remote_app_data={
+            "endpoints": "db-host:5432",
+            "username": "testuser",
+            "password": "testpassword",
+            "database": "debarchive",
+            "tls": "True",
+        },
+    )
+    state_in = testing.State(relations=[db_rel])
+
+    state_out = ctx.run(ctx.on.relation_changed(db_rel), state_in)
+
+    mock_snap.set.assert_called_once_with(
+        {
+            "deb.archive.database.host": "db-host",
+            "deb.archive.database.port": "5432",
+            "deb.archive.database.user": "testuser",
+            "deb.archive.database.password": "testpassword",
+            "deb.archive.database.name": "debarchive",
+            "deb.archive.database.ssl": "require",
+            "deb.archive.database.driver": "pgx",
+        }
+    )
+    mock_snap.restart.assert_called_once()
+    assert state_out.unit_status == testing.ActiveStatus()
+
+
+def test_database_created_missing_info_defers(monkeypatch: pytest.MonkeyPatch):
+    """Test that the charm defers the event if database relation properties are missing."""
+    ctx = testing.Context(DebarchiveOperatorCharm)
+
+    mock_snap = MagicMock()
+    mock_cache = MagicMock()
+    mock_cache.__getitem__.return_value = mock_snap
+    monkeypatch.setattr("debarchive.snap.SnapCache", lambda: mock_cache)
+
+    db_rel = testing.Relation(
+        endpoint="database",
+        interface="postgresql_client",
+        remote_app_data={
+            "endpoints": "",
+            "username": "",
+            "password": "",
+            "database": "",
+        },
+    )
+    state_in = testing.State(relations=[db_rel])
+
+    state_out = ctx.run(ctx.on.relation_changed(db_rel), state_in)
+
+    assert len(state_out.deferred) == 1
+    mock_snap.set.assert_not_called()
+
+
+def test_database_created_configure_exception(monkeypatch: pytest.MonkeyPatch):
+    """Test that the charm sets BlockedStatus when configure_database fails."""
+    ctx = testing.Context(DebarchiveOperatorCharm)
+
+    monkeypatch.setattr(
+        "charm.debarchive.configure_database", MagicMock(side_effect=Exception("snap error"))
+    )
+
+    db_rel = testing.Relation(
+        endpoint="database",
+        interface="postgresql_client",
+        remote_app_data={
+            "endpoints": "db-host:5432",
+            "username": "testuser",
+            "password": "testpass",
+            "database": "debarchive",
+        },
+    )
+    state_in = testing.State(relations=[db_rel])
+
+    state_out = ctx.run(ctx.on.relation_changed(db_rel), state_in)
+
+    assert state_out.unit_status == testing.BlockedStatus(
+        "Failed to configure database connection"
+    )

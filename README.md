@@ -8,10 +8,10 @@ Avoid using this README file for information that is maintained or published els
 Use links instead.
 -->
 
-# debarchive-operator
+# landscape-debarchive-operator
 
-Charmhub package name: debarchive-operator
-More information: https://charmhub.io/debarchive-operator
+Charmhub package name: landscape-debarchive-operator
+More information: https://charmhub.io/landscape-debarchive-operator
 
 Describe your charm in one or two sentences.
 

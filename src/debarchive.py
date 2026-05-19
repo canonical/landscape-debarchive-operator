@@ -11,8 +11,6 @@ logger = logging.getLogger(__name__)
 
 SNAPS_TO_INSTALL = [("landscape-debarchive", {"channel": "edge"})]
 
-# Functions for managing the workload process on the local machine:
-
 
 def install() -> None:
     """Handle installing anything debarchive specific (e.g., temporal snap, etc,..)."""
@@ -47,10 +45,26 @@ def _install_snap_packages():
             raise
 
 
-# Functions for interacting with the workload, for example over HTTP:
+def configure_database(
+    host: str, port: str, user: str, password: str, database: str, ssl: str = "disable"
+) -> None:
+    """Set the database connection parameters in the snap configuration."""
+    debarchive_snap = snap.SnapCache()["landscape-debarchive"]
+    debarchive_snap.set(
+        {
+            "deb.archive.database.host": host,
+            "deb.archive.database.port": port,
+            "deb.archive.database.user": user,
+            "deb.archive.database.password": password,
+            "deb.archive.database.name": database,
+            "deb.archive.database.ssl": ssl,
+            "deb.archive.database.driver": "pgx",
+        }
+    )
+    debarchive_snap.restart()
 
 
 def get_version() -> str | None:
     """Get the running version of the workload."""
-    # You'll need to implement this function (or remove it if not needed).
-    return None
+    debarchive_snap = snap.SnapCache()["landscape-debarchive"]
+    return debarchive_snap.revision if debarchive_snap.present else None
