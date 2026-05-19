@@ -23,7 +23,7 @@ def test_install(monkeypatch: pytest.MonkeyPatch):
     state_in = testing.State()
     _ = ctx.run(ctx.on.install(), state_in)
 
-    mock_snap.ensure.assert_called_once_with(snap.SnapState.Latest, channel="edge")
+    mock_snap.ensure.assert_called_once_with(snap.SnapState.Latest, channel="beta")
     mock_snap.set.assert_called_once_with({"deb.archive.server.host": "0.0.0.0"})
     mock_snap.restart.assert_called_once()
 
