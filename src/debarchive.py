@@ -9,7 +9,7 @@ from charmlibs import snap
 
 logger = logging.getLogger(__name__)
 
-SNAPS_TO_INSTALL = [("landscape-debarchive", {"channel": "edge"})]
+SNAPS_TO_INSTALL = [("landscape-debarchive", {"channel": "beta"})]
 
 
 def install() -> None:
