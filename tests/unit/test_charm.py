@@ -266,12 +266,43 @@ def test_install_snap_packages_error_path(monkeypatch: pytest.MonkeyPatch):
         debarchive.install()
 
 
-def test_get_version_debarchive():
-    """Test that debarchive `get_version` returns expected value."""
+def test_get_version_debarchive_present(monkeypatch: pytest.MonkeyPatch):
+    """Test that `get_version` returns the snap revision as a string when installed."""
+    mock_snap = MagicMock()
+    mock_snap.present = True
+    mock_snap.revision = 42
+
+    mock_cache = MagicMock()
+    mock_cache.__getitem__.return_value = mock_snap
+    monkeypatch.setattr("debarchive.snap.SnapCache", lambda: mock_cache)
+
+    version = debarchive.get_version()
+
+    assert version == "42"
+    assert isinstance(version, str)
+
+
+def test_get_version_debarchive_not_present(monkeypatch: pytest.MonkeyPatch):
+    """Test that `get_version` returns None when the snap is not installed."""
+    mock_snap = MagicMock()
+    mock_snap.present = False
+
+    mock_cache = MagicMock()
+    mock_cache.__getitem__.return_value = mock_snap
+    monkeypatch.setattr("debarchive.snap.SnapCache", lambda: mock_cache)
+
     version = debarchive.get_version()
 
     assert version is None
-    assert isinstance(version, (str, type(None)))
+
+
+def test_get_version_debarchive_snap_error(monkeypatch: pytest.MonkeyPatch):
+    """Test that `get_version` returns None when snapd raises a SnapError."""
+    mock_cache = MagicMock()
+    mock_cache.__getitem__.side_effect = snap.SnapError("snapd unavailable")
+    monkeypatch.setattr("debarchive.snap.SnapCache", lambda: mock_cache)
+
+    assert debarchive.get_version() is None
 
 
 def test_configure_database(monkeypatch: pytest.MonkeyPatch):

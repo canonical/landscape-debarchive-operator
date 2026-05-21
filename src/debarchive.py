@@ -66,5 +66,10 @@ def configure_database(
 
 def get_version() -> str | None:
     """Get the running version of the workload."""
-    debarchive_snap = snap.SnapCache()["landscape-debarchive"]
-    return debarchive_snap.revision if debarchive_snap.present else None
+    try:
+        debarchive_snap = snap.SnapCache()["landscape-debarchive"]
+    except (snap.SnapError, snap.SnapNotFoundError) as e:
+        logger.warning("Unable to query landscape-debarchive snap version: %s", e)
+        return None
+
+    return str(debarchive_snap.revision) if debarchive_snap.present else None

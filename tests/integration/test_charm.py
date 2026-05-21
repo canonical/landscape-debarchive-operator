@@ -18,10 +18,10 @@ def juju():
 def test_deploy(juju):
     """Deploy the charm using the Snap-safe common directory."""
     charm_env = os.environ.get("CHARM_PATH")
+    assert charm_env, "CHARM_PATH environment variable is not set"
 
-    if charm_env:
-        charm_path = Path(charm_env).resolve()
-        assert charm_path.exists(), f"Charm not found at CHARM_PATH: {charm_env}"
+    charm_path = Path(charm_env).resolve()
+    assert charm_path.exists(), f"Charm not found at CHARM_PATH: {charm_env}"
 
     juju.deploy(str(charm_path))
     juju.wait(jubilant.all_active)
