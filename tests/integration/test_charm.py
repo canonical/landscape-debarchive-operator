@@ -42,6 +42,6 @@ def test_database_relation(juju):
 
     juju.wait(jubilant.all_active)
 
-    relations = set(juju.status().apps["landscape-debarchive"].relations)
+    relations = set(juju.status().apps[SNAP_NAME].relations)
 
     assert "database" in relations

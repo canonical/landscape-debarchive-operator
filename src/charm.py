@@ -27,8 +27,8 @@ class DebarchiveOperatorCharm(ops.CharmBase):
         framework.observe(self.on.install, self._on_install)
         framework.observe(self.on.start, self._on_start)
         framework.observe(self.on.config_changed, self._on_config_changed)
-        framework.observe(self.database.on.database_created, self._on_database_created)
-        framework.observe(self.database.on.endpoints_changed, self._on_database_created)
+        framework.observe(self.database.on.database_created, self._on_database_configured)
+        framework.observe(self.database.on.endpoints_changed, self._on_database_configured)
 
     def _on_install(self, event: ops.InstallEvent):
         """Install the workload on the machine."""
@@ -72,7 +72,7 @@ class DebarchiveOperatorCharm(ops.CharmBase):
 
         self.unit.status = ops.ActiveStatus()
 
-    def _on_database_created(self, event):
+    def _on_database_configured(self, event):
         """Update database information for relation in the snap."""
         endpoints_str = event.endpoints or ""
         username = event.username or ""
@@ -80,7 +80,7 @@ class DebarchiveOperatorCharm(ops.CharmBase):
         database = event.database or ""
         endpoint = endpoints_str.split(",")[0] if endpoints_str else ""
 
-        if not endpoint or not username or not password or not database:
+        if not all([endpoint, username, password, database]):
             event.defer()
             return
 

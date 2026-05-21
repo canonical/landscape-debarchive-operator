@@ -9,7 +9,8 @@ from charmlibs import snap
 
 logger = logging.getLogger(__name__)
 
-SNAPS_TO_INSTALL = [("landscape-debarchive", {"channel": "beta"})]
+SNAP_NAME = "landscape-debarchive"
+SNAPS_TO_INSTALL = [(SNAP_NAME, {"channel": "beta"})]
 
 
 def install() -> None:
@@ -34,7 +35,7 @@ def _install_snap_packages():
                 if "channel" in snap_version:
                     snap_package.ensure(snap.SnapState.Latest, channel=snap_version["channel"])
 
-            if snap_name == "landscape-debarchive":
+            if snap_name == SNAP_NAME:
                 snap_package.set({"deb.archive.server.host": "0.0.0.0"})
                 snap_package.restart()
 
@@ -49,7 +50,7 @@ def configure_database(
     host: str, port: str, user: str, password: str, database: str, ssl: str = "disable"
 ) -> None:
     """Set the database connection parameters in the snap configuration."""
-    debarchive_snap = snap.SnapCache()["landscape-debarchive"]
+    debarchive_snap = snap.SnapCache()[SNAP_NAME]
     debarchive_snap.set(
         {
             "deb.archive.database.host": host,
@@ -67,9 +68,9 @@ def configure_database(
 def get_version() -> str | None:
     """Get the running version of the workload."""
     try:
-        debarchive_snap = snap.SnapCache()["landscape-debarchive"]
+        debarchive_snap = snap.SnapCache()[SNAP_NAME]
     except (snap.SnapError, snap.SnapNotFoundError) as e:
-        logger.warning("Unable to query landscape-debarchive snap version: %s", e)
+        logger.warning(f"Unable to query {SNAP_NAME} snap version: %s", e)
         return None
 
     return str(debarchive_snap.revision) if debarchive_snap.present else None
