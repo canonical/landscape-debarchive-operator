@@ -9,9 +9,8 @@ from charmlibs import snap
 
 logger = logging.getLogger(__name__)
 
-SNAPS_TO_INSTALL = [("landscape-debarchive", {"channel": "edge"})]
-
-# Functions for managing the workload process on the local machine:
+DEBARCHIVE_SNAP_NAME = "landscape-debarchive"
+SNAPS_TO_INSTALL = [(DEBARCHIVE_SNAP_NAME, {"channel": "beta"})]
 
 
 def install() -> None:
@@ -36,7 +35,7 @@ def _install_snap_packages():
                 if "channel" in snap_version:
                     snap_package.ensure(snap.SnapState.Latest, channel=snap_version["channel"])
 
-            if snap_name == "landscape-debarchive":
+            if snap_name == DEBARCHIVE_SNAP_NAME:
                 snap_package.set({"deb.archive.server.host": "0.0.0.0"})
                 snap_package.restart()
 
@@ -47,10 +46,31 @@ def _install_snap_packages():
             raise
 
 
-# Functions for interacting with the workload, for example over HTTP:
+def configure_database(
+    host: str, port: str, user: str, password: str, database: str, ssl: str = "disable"
+) -> None:
+    """Set the database connection parameters in the snap configuration."""
+    debarchive_snap = snap.SnapCache()[DEBARCHIVE_SNAP_NAME]
+    debarchive_snap.set(
+        {
+            "deb.archive.database.host": host,
+            "deb.archive.database.port": port,
+            "deb.archive.database.user": user,
+            "deb.archive.database.password": password,
+            "deb.archive.database.name": database,
+            "deb.archive.database.ssl": ssl,
+            "deb.archive.database.driver": "pgx",
+        }
+    )
+    debarchive_snap.restart()
 
 
 def get_version() -> str | None:
     """Get the running version of the workload."""
-    # You'll need to implement this function (or remove it if not needed).
-    return None
+    try:
+        debarchive_snap = snap.SnapCache()[DEBARCHIVE_SNAP_NAME]
+    except (snap.SnapError, snap.SnapNotFoundError) as e:
+        logger.warning(f"Unable to query {DEBARCHIVE_SNAP_NAME} snap version: %s", e)
+        return None
+
+    return str(debarchive_snap.revision) if debarchive_snap.present else None

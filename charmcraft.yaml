@@ -1,11 +1,15 @@
 type: charm
 
-name: debarchive
+name: landscape-debarchive
 title: Debarchive Operator
 
 summary: Charm for installing and using debarchive with Landscape Server.
 description: |
   Charm used for managing debarchive along with Landscape Server.
+
+charm-libs:
+  - lib: data_platform_libs.data_interfaces
+    version: "0"
 
 platforms:
   #ubuntu@22.04:amd64: TBD - Release for jammy as well?
@@ -19,8 +23,16 @@ parts:
     source: .
     build-snaps:
       - astral-uv
+    prime:
+      - "-.ruff_cache"
+      - "-.venv"
+      - "-.pytest_cache"
 
-config: 
+requires:
+  database:
+    interface: postgresql_client
+
+config:
   options:
     server-port:
       default: 8000

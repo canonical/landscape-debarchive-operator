@@ -116,7 +116,7 @@ toml = [
 ]
 
 [[package]]
-name = "debarchive-operator"
+name = "landscape-debarchive-operator"
 version = "0.0.1"
 source = { virtual = "." }
 dependencies = [

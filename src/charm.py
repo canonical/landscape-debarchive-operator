@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
 """Charm the service."""
 
+import logging
+
 import ops
 from charmlibs import snap
+from charms.data_platform_libs.v0.data_interfaces import (
+    DatabaseRequires,
+)
 
 import debarchive
+
+logger = logging.getLogger(__name__)
 
 
 class DebarchiveOperatorCharm(ops.CharmBase):
@@ -12,9 +19,16 @@ class DebarchiveOperatorCharm(ops.CharmBase):
 
     def __init__(self, framework: ops.Framework):
         super().__init__(framework)
+
+        self.database = DatabaseRequires(
+            self, relation_name="database", database_name="debarchive"
+        )
+
         framework.observe(self.on.install, self._on_install)
         framework.observe(self.on.start, self._on_start)
         framework.observe(self.on.config_changed, self._on_config_changed)
+        framework.observe(self.database.on.database_created, self._on_database_configured)
+        framework.observe(self.database.on.endpoints_changed, self._on_database_configured)
 
     def _on_install(self, event: ops.InstallEvent):
         """Install the workload on the machine."""
@@ -54,6 +68,31 @@ class DebarchiveOperatorCharm(ops.CharmBase):
 
         except snap.SnapError:
             self.unit.status = ops.BlockedStatus("Failed to apply configuration")
+            return
+
+        self.unit.status = ops.ActiveStatus()
+
+    def _on_database_configured(self, event):
+        """Update database information for relation in the snap."""
+        endpoints_str = event.endpoints or ""
+        username = event.username or ""
+        password = event.password or ""
+        database = event.database or ""
+        endpoint = endpoints_str.split(",")[0] if endpoints_str else ""
+
+        if not all([endpoint, username, password, database]):
+            event.defer()
+            return
+
+        host, port = endpoint.split(":") if ":" in endpoint else (endpoint, "5432")
+        ssl = "require" if str(event.tls).lower() == "true" else "disable"
+
+        self.unit.status = ops.MaintenanceStatus("Configuring database connection...")
+
+        try:
+            debarchive.configure_database(host, port, username, password, database, ssl)
+        except Exception:
+            self.unit.status = ops.BlockedStatus("Failed to configure database connection")
             return
 
         self.unit.status = ops.ActiveStatus()
