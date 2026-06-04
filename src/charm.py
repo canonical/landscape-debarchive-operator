@@ -8,10 +8,18 @@ from charmlibs import snap
 from charms.data_platform_libs.v0.data_interfaces import (
     DatabaseRequires,
 )
+from charms.haproxy.v1.haproxy_route import HaproxyRouteRequirer
+from ops.charm import (
+    RelationChangedEvent,
+    RelationJoinedEvent,
+)
+from ops.model import ModelError
 
 import debarchive
 
 logger = logging.getLogger(__name__)
+
+HAPROXY_ROUTE_RELATION = "debarchive-haproxy-route"
 
 
 class DebarchiveOperatorCharm(ops.CharmBase):
@@ -29,6 +37,33 @@ class DebarchiveOperatorCharm(ops.CharmBase):
         framework.observe(self.on.config_changed, self._on_config_changed)
         framework.observe(self.database.on.database_created, self._on_database_created)
         framework.observe(self.database.on.endpoints_changed, self._on_database_created)
+        self.debarchive_haproxy_route = HaproxyRouteRequirer(
+            self, relation_name=HAPROXY_ROUTE_RELATION
+        )
+
+        self.framework.observe(
+            self.on[HAPROXY_ROUTE_RELATION].relation_joined,
+            self._on_haproxy_route_relation_joined,
+        )
+        self.framework.observe(
+            self.on[HAPROXY_ROUTE_RELATION].relation_changed,
+            self._on_haproxy_route_relation_joined,
+        )
+
+    @property
+    def unit_ip(self) -> str | None:
+        """Return the IP address bound to the haproxy-route endpoint."""
+        network_binding = self.model.get_binding(HAPROXY_ROUTE_RELATION)
+        if network_binding is None:
+            return None
+
+        try:
+            bind_address = network_binding.network.bind_address
+        except ModelError as e:
+            logger.warning(f"No bind address found for `{HAPROXY_ROUTE_RELATION}`: {e}")
+            return None
+
+        return str(bind_address) if bind_address else None
 
     def _on_install(self, event: ops.InstallEvent):
         """Install the workload on the machine."""
@@ -70,6 +105,10 @@ class DebarchiveOperatorCharm(ops.CharmBase):
             self.unit.status = ops.BlockedStatus("Failed to apply configuration")
             return
 
+        # Republish the haproxy-route requirements so any related haproxy picks
+        # up the (potentially changed) port.
+        self._provide_haproxy_route_requirements()
+
         self.unit.status = ops.ActiveStatus()
 
     def _on_database_created(self, event):
@@ -96,6 +135,32 @@ class DebarchiveOperatorCharm(ops.CharmBase):
             return
 
         self.unit.status = ops.ActiveStatus()
+
+    def _on_haproxy_route_relation_joined(
+        self, event: RelationJoinedEvent | RelationChangedEvent
+    ) -> None:
+        """Provide the haproxy-route requirements when the relation changes."""
+        self._provide_haproxy_route_requirements()
+
+    def _provide_haproxy_route_requirements(self) -> None:
+        """Publish this unit's haproxy-route requirements to the related haproxy."""
+        unit_ip = self.unit_ip
+        if not unit_ip:
+            return
+
+        port = int(self.config["server-port"])
+
+        self.debarchive_haproxy_route.provide_haproxy_route_requirements(
+            service=f"landscape-debarchive-{self.model.uuid}",
+            ports=[port],
+            paths=["/debarchive"],
+            protocol="http",
+            check_path="/debarchive",
+            header_rewrite_expressions=[("X-Forwarded-Proto", "https")],
+            allow_http=True,
+            unit_address=unit_ip,
+            hostname="https://" + unit_ip,
+        )
 
 
 if __name__ == "__main__":  # pragma: nocover

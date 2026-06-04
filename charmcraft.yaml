@@ -10,6 +10,9 @@ description: |
 charm-libs:
   - lib: data_platform_libs.data_interfaces
     version: "0"
+  - lib: haproxy.haproxy_route
+    version: "1"
+
 
 platforms:
   #ubuntu@22.04:amd64: TBD - Release for jammy as well?
@@ -31,6 +34,9 @@ parts:
 requires:
   database:
     interface: postgresql_client
+  debarchive-haproxy-route:
+    interface: haproxy-route
+    limit: 1
 
 config:
   options:

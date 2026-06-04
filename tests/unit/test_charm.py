@@ -3,6 +3,7 @@ from unittest.mock import MagicMock
 import pytest
 from charmlibs import snap
 from ops import testing
+from ops.model import ModelError
 
 import debarchive
 from charm import DebarchiveOperatorCharm
@@ -421,3 +422,74 @@ def test_database_created_configure_exception(monkeypatch: pytest.MonkeyPatch):
     assert state_out.unit_status == testing.BlockedStatus(
         "Failed to configure database connection"
     )
+
+
+def test_haproxy_route_relation_joined_publishes(monkeypatch: pytest.MonkeyPatch):
+    """Test that joining the haproxy-route relation publishes the route requirements."""
+    ctx = testing.Context(DebarchiveOperatorCharm)
+
+    captured = {}
+
+    def fake_provide(self, **kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr(
+        "charm.HaproxyRouteRequirer.provide_haproxy_route_requirements", fake_provide
+    )
+
+    haproxy_rel = testing.Relation(
+        endpoint="debarchive-haproxy-route", interface="haproxy-route"
+    )
+    network = testing.Network(
+        "debarchive-haproxy-route",
+        bind_addresses=[testing.BindAddress([testing.Address("10.1.2.3")])],
+    )
+    state_in = testing.State(relations=[haproxy_rel], networks={network})
+
+    ctx.run(ctx.on.relation_joined(haproxy_rel), state_in)
+
+    assert captured["unit_address"] == "10.1.2.3"
+    assert captured["hostname"] == "10.1.2.3"
+    assert captured["ports"] == [8000]
+    assert captured["paths"] == ["/debarchive"]
+    assert captured["service"].startswith("landscape-debarchive-")
+
+
+def test_unit_ip_no_binding(monkeypatch: pytest.MonkeyPatch):
+    """Test that unit_ip is None (and the route is not published) without a binding."""
+    ctx = testing.Context(DebarchiveOperatorCharm)
+
+    with ctx(ctx.on.start(), testing.State()) as manager:
+        manager.run()
+        charm = manager.charm
+        monkeypatch.setattr(charm.model, "get_binding", lambda name: None)
+        provide = MagicMock()
+        monkeypatch.setattr(
+            charm.debarchive_haproxy_route, "provide_haproxy_route_requirements", provide
+        )
+
+        assert charm.unit_ip is None
+
+        # With no IP, the route requirements should not be published.
+        charm._provide_haproxy_route_requirements()
+        provide.assert_not_called()
+
+
+def test_unit_ip_model_error(monkeypatch: pytest.MonkeyPatch):
+    """Test that unit_ip returns None when reading the bind address raises ModelError."""
+    ctx = testing.Context(DebarchiveOperatorCharm)
+
+    class FakeNetwork:
+        @property
+        def bind_address(self):
+            raise ModelError("no bind address")
+
+    class FakeBinding:
+        network = FakeNetwork()
+
+    with ctx(ctx.on.start(), testing.State()) as manager:
+        manager.run()
+        charm = manager.charm
+        monkeypatch.setattr(charm.model, "get_binding", lambda name: FakeBinding())
+
+        assert charm.unit_ip is None
