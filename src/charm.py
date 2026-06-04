@@ -17,8 +17,12 @@ logger = logging.getLogger(__name__)
 class DebarchiveOperatorCharm(ops.CharmBase):
     """Charm the application."""
 
+    _stored = ops.StoredState()
+
     def __init__(self, framework: ops.Framework):
         super().__init__(framework)
+
+        self._stored.set_default(root_url=None)
 
         self.database = DatabaseRequires(
             self, relation_name="database", database_name="debarchive"
@@ -29,6 +33,9 @@ class DebarchiveOperatorCharm(ops.CharmBase):
         framework.observe(self.on.config_changed, self._on_config_changed)
         framework.observe(self.database.on.database_created, self._on_database_configured)
         framework.observe(self.database.on.endpoints_changed, self._on_database_configured)
+        framework.observe(
+            self.on.landscape_server_relation_changed, self._on_landscape_server_changed
+        )
 
     def _on_install(self, event: ops.InstallEvent):
         """Install the workload on the machine."""
@@ -96,6 +103,20 @@ class DebarchiveOperatorCharm(ops.CharmBase):
             return
 
         self.unit.status = ops.ActiveStatus()
+
+    def _on_landscape_server_changed(self, event):
+        """Store the `root_url` provided by the Landscape Server charm."""
+        if event.app is None:
+            return
+
+        root_url = event.relation.data[event.app].get("root-url")
+        if not root_url:
+            # The producer hasn't published a root URL yet; wait for a
+            # subsequent relation-changed event.
+            return
+
+        self._stored.root_url = root_url
+        logger.info("Stored Landscape root_url: %s", root_url)
 
 
 if __name__ == "__main__":  # pragma: nocover

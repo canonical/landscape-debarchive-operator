@@ -396,6 +396,40 @@ def test_database_created_missing_info_defers(monkeypatch: pytest.MonkeyPatch):
     mock_snap.set.assert_not_called()
 
 
+def test_landscape_server_relation_stores_root_url():
+    """Test that a root-url on the landscape-server relation is saved to StoredState."""
+    ctx = testing.Context(DebarchiveOperatorCharm)
+
+    rel = testing.Relation(
+        endpoint="landscape-server",
+        interface="landscape-debarchive",
+        remote_app_data={"root-url": "https://landscape.example.com"},
+    )
+    state_in = testing.State(relations=[rel])
+
+    state_out = ctx.run(ctx.on.relation_changed(rel), state_in)
+
+    stored = state_out.get_stored_state("_stored", owner_path="DebarchiveOperatorCharm")
+    assert stored.content["root_url"] == "https://landscape.example.com"
+
+
+def test_landscape_server_relation_no_root_url():
+    """Test that nothing is stored when no root-url is published yet."""
+    ctx = testing.Context(DebarchiveOperatorCharm)
+
+    rel = testing.Relation(
+        endpoint="landscape-server",
+        interface="landscape-debarchive",
+        remote_app_data={},
+    )
+    state_in = testing.State(relations=[rel])
+
+    state_out = ctx.run(ctx.on.relation_changed(rel), state_in)
+
+    stored = state_out.get_stored_state("_stored", owner_path="DebarchiveOperatorCharm")
+    assert stored.content["root_url"] is None
+
+
 def test_database_created_configure_exception(monkeypatch: pytest.MonkeyPatch):
     """Test that the charm sets BlockedStatus when configure_database fails."""
     ctx = testing.Context(DebarchiveOperatorCharm)

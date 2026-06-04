@@ -31,6 +31,9 @@ parts:
 requires:
   database:
     interface: postgresql_client
+  landscape-server:
+    interface: landscape-debarchive
+    limit: 1
 
 config:
   options:
