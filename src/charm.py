@@ -118,6 +118,17 @@ class DebarchiveOperatorCharm(ops.CharmBase):
         self._stored.root_url = root_url
         logger.info("Stored Landscape root_url: %s", root_url)
 
+        secret_id = event.relation.data[event.app].get("secret-id")
+        try:
+            secret = self.model.get_secret(id=secret_id)
+            content = secret.get_content(refresh=True)
+        except (ops.SecretNotFoundError, ops.ModelError):
+            logger.warning("no secret token for secret-id %s", secret_id)
+            self.unit.status = ops.BlockedStatus("no secret token")
+            return
+
+        debarchive.set_secret_token(content)
+
 
 if __name__ == "__main__":  # pragma: nocover
     ops.main(DebarchiveOperatorCharm)

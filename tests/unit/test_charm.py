@@ -24,8 +24,14 @@ def test_install(monkeypatch: pytest.MonkeyPatch):
     _ = ctx.run(ctx.on.install(), state_in)
 
     mock_snap.ensure.assert_called_once_with(snap.SnapState.Latest, channel="beta")
-    mock_snap.set.assert_called_once_with({"deb.archive.server.host": "0.0.0.0"})
-    mock_snap.restart.assert_called_once()
+
+    # install() configures the host and then sets a generated pagination secret.
+    mock_snap.set.assert_any_call({"deb.archive.server.host": "0.0.0.0"})
+    pagination_call = mock_snap.set.call_args_list[-1].args[0]
+    assert list(pagination_call) == ["deb.archive.pagination.secret"]
+    assert pagination_call["deb.archive.pagination.secret"]
+    assert mock_snap.set.call_count == 2
+    assert mock_snap.restart.call_count == 2
 
 
 def test_start(monkeypatch: pytest.MonkeyPatch):
@@ -183,7 +189,7 @@ def test_install_snap_packages_installs_and_configures_debarchive(monkeypatch: p
             self.ensured = True
 
         def set(self, config):
-            self.set_called = config
+            self.set_called.update(config)
 
         def restart(self):
             self.restarted = True
@@ -201,6 +207,7 @@ def test_install_snap_packages_installs_and_configures_debarchive(monkeypatch: p
     assert mock_snap_inst.ensured is True
     assert mock_snap_inst.restarted is True
     assert mock_snap_inst.set_called["deb.archive.server.host"] == "0.0.0.0"
+    assert mock_snap_inst.set_called["deb.archive.pagination.secret"]
 
 
 def test_install_snap_packages_skips(monkeypatch: pytest.MonkeyPatch):
@@ -328,6 +335,35 @@ def test_configure_database(monkeypatch: pytest.MonkeyPatch):
     mock_snap.restart.assert_called_once()
 
 
+def test_set_secret_token(monkeypatch: pytest.MonkeyPatch):
+    """Test that set_secret_token writes the JWT secret and restarts the snap."""
+    mock_snap = MagicMock()
+    mock_cache = MagicMock()
+    mock_cache.__getitem__.return_value = mock_snap
+    monkeypatch.setattr("debarchive.snap.SnapCache", lambda: mock_cache)
+
+    debarchive.set_secret_token({"secret-token": "jwt-secret"})
+
+    mock_snap.set.assert_called_once_with({"deb.archive.jwt.secret": "jwt-secret"})
+    mock_snap.restart.assert_called_once()
+
+
+def test_set_pagination_secret(monkeypatch: pytest.MonkeyPatch):
+    """Test that set_pagination_secret writes the pagination secret and restarts."""
+    mock_snap = MagicMock()
+    mock_cache = MagicMock()
+    mock_cache.__getitem__.return_value = mock_snap
+    monkeypatch.setattr("debarchive.snap.SnapCache", lambda: mock_cache)
+
+    debarchive.set_pagination_secret()
+
+    mock_snap.set.assert_called_once()
+    (config,) = mock_snap.set.call_args.args
+    assert list(config.keys()) == ["deb.archive.pagination.secret"]
+    assert config["deb.archive.pagination.secret"]
+    mock_snap.restart.assert_called_once()
+
+
 def test_database_created(monkeypatch: pytest.MonkeyPatch):
     """Test that the charm processes the database credentials and configures the snap."""
     ctx = testing.Context(DebarchiveOperatorCharm)
@@ -396,26 +432,61 @@ def test_database_created_missing_info_defers(monkeypatch: pytest.MonkeyPatch):
     mock_snap.set.assert_not_called()
 
 
-def test_landscape_server_relation_stores_root_url():
-    """Test that a root-url on the landscape-server relation is saved to StoredState."""
+def test_landscape_server_relation_stores_root_url(monkeypatch: pytest.MonkeyPatch):
+    """Test that root-url is stored and the shared secret token is configured."""
     ctx = testing.Context(DebarchiveOperatorCharm)
 
+    mock_set_secret = MagicMock()
+    monkeypatch.setattr("charm.debarchive.set_secret_token", mock_set_secret)
+
+    secret = testing.Secret(tracked_content={"secret-token": "jwt-secret"})
     rel = testing.Relation(
         endpoint="landscape-server",
         interface="landscape-debarchive",
-        remote_app_data={"root-url": "https://landscape.example.com"},
+        remote_app_data={
+            "root-url": "https://landscape.example.com",
+            "secret-id": secret.id,
+        },
     )
-    state_in = testing.State(relations=[rel])
+    state_in = testing.State(relations=[rel], secrets=[secret])
 
     state_out = ctx.run(ctx.on.relation_changed(rel), state_in)
 
     stored = state_out.get_stored_state("_stored", owner_path="DebarchiveOperatorCharm")
     assert stored.content["root_url"] == "https://landscape.example.com"
+    mock_set_secret.assert_called_once_with({"secret-token": "jwt-secret"})
 
 
-def test_landscape_server_relation_no_root_url():
-    """Test that nothing is stored when no root-url is published yet."""
+def test_landscape_server_relation_no_app(monkeypatch: pytest.MonkeyPatch):
+    """Test that nothing is stored when the relation-changed event has no remote app."""
     ctx = testing.Context(DebarchiveOperatorCharm)
+
+    mock_set_secret = MagicMock()
+    monkeypatch.setattr("charm.debarchive.set_secret_token", mock_set_secret)
+
+    rel = testing.Relation(
+        endpoint="landscape-server",
+        interface="landscape-debarchive",
+        remote_app_data={},
+    )
+    state_in = testing.State(relations=[rel])
+
+    with ctx(ctx.on.relation_changed(rel), state_in) as manager:
+        event = MagicMock()
+        event.app = None
+        manager.charm._on_landscape_server_changed(event)
+
+        assert manager.charm._stored.root_url is None
+
+    mock_set_secret.assert_not_called()
+
+
+def test_landscape_server_relation_no_root_url(monkeypatch: pytest.MonkeyPatch):
+    """Test that nothing is stored or configured when no root-url is published yet."""
+    ctx = testing.Context(DebarchiveOperatorCharm)
+
+    mock_set_secret = MagicMock()
+    monkeypatch.setattr("charm.debarchive.set_secret_token", mock_set_secret)
 
     rel = testing.Relation(
         endpoint="landscape-server",
@@ -428,6 +499,26 @@ def test_landscape_server_relation_no_root_url():
 
     stored = state_out.get_stored_state("_stored", owner_path="DebarchiveOperatorCharm")
     assert stored.content["root_url"] is None
+    mock_set_secret.assert_not_called()
+
+
+def test_landscape_server_relation_secret_not_found():
+    """Test that the unit blocks when the advertised secret cannot be read."""
+    ctx = testing.Context(DebarchiveOperatorCharm)
+
+    rel = testing.Relation(
+        endpoint="landscape-server",
+        interface="landscape-debarchive",
+        remote_app_data={
+            "root-url": "https://landscape.example.com",
+            "secret-id": "secret:doesnotexist",
+        },
+    )
+    state_in = testing.State(relations=[rel])
+
+    state_out = ctx.run(ctx.on.relation_changed(rel), state_in)
+
+    assert state_out.unit_status == testing.BlockedStatus("no secret token")
 
 
 def test_database_created_configure_exception(monkeypatch: pytest.MonkeyPatch):

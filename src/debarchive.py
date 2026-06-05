@@ -4,6 +4,7 @@ The intention is that this module could be used outside the context of a charm.
 """
 
 import logging
+import secrets
 
 from charmlibs import snap
 
@@ -16,6 +17,7 @@ SNAPS_TO_INSTALL = [(DEBARCHIVE_SNAP_NAME, {"channel": "beta"})]
 def install() -> None:
     """Handle installing anything debarchive specific (e.g., temporal snap, etc,..)."""
     _install_snap_packages()
+    set_pagination_secret()
 
 
 def start() -> None:
@@ -74,3 +76,27 @@ def get_version() -> str | None:
         return None
 
     return str(debarchive_snap.revision) if debarchive_snap.present else None
+
+
+def set_secret_token(content: dict[str, str]) -> None:
+    """Set the jwt secret token in the snap configuration."""
+    secret_token = content["secret-token"]
+    debarchive_snap = snap.SnapCache()[DEBARCHIVE_SNAP_NAME]
+    debarchive_snap.set(
+        {
+            "deb.archive.jwt.secret": secret_token,
+        }
+    )
+    debarchive_snap.restart()
+
+
+def set_pagination_secret() -> None:
+    """Set the pagination secret in the snap configuration."""
+    pagination_secret = secrets.token_urlsafe(32)
+    debarchive_snap = snap.SnapCache()[DEBARCHIVE_SNAP_NAME]
+    debarchive_snap.set(
+        {
+            "deb.archive.pagination.secret": pagination_secret,
+        }
+    )
+    debarchive_snap.restart()
