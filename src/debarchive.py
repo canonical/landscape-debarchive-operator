@@ -3,6 +3,7 @@
 The intention is that this module could be used outside the context of a charm.
 """
 
+import base64
 import logging
 import secrets
 
@@ -39,7 +40,6 @@ def _install_snap_packages():
 
             if snap_name == DEBARCHIVE_SNAP_NAME:
                 snap_package.set({"deb.archive.server.host": "0.0.0.0"})
-                snap_package.restart()
 
             # TODO: if we want a specific revision of the snap (to match charm revisions to
             # snap revisions) handle here, then hold the package
@@ -64,7 +64,6 @@ def configure_database(
             "deb.archive.database.driver": "pgx",
         }
     )
-    debarchive_snap.restart()
 
 
 def get_version() -> str | None:
@@ -87,16 +86,15 @@ def set_secret_token(content: dict[str, str]) -> None:
             "deb.archive.jwt.secret": secret_token,
         }
     )
-    debarchive_snap.restart()
 
 
 def set_pagination_secret() -> None:
     """Set the pagination secret in the snap configuration."""
-    pagination_secret = secrets.token_urlsafe(32)
+    raw_bytes = secrets.token_bytes(32)
+    pagination_secret = base64.urlsafe_b64encode(raw_bytes).decode("utf-8")
     debarchive_snap = snap.SnapCache()[DEBARCHIVE_SNAP_NAME]
     debarchive_snap.set(
         {
             "deb.archive.pagination.secret": pagination_secret,
         }
     )
-    debarchive_snap.restart()
