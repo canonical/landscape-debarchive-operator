@@ -13,7 +13,6 @@ charm-libs:
   - lib: haproxy.haproxy_route
     version: "1"
 
-
 platforms:
   #ubuntu@22.04:amd64: TBD - Release for jammy as well?
   #ubuntu@22.04:arm64:
@@ -36,6 +35,9 @@ requires:
     interface: postgresql_client
   debarchive-haproxy-route:
     interface: haproxy-route
+    limit: 1
+  landscape-server:
+    interface: landscape-debarchive
     limit: 1
 
 config:

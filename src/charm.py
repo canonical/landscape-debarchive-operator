@@ -25,8 +25,12 @@ HAPROXY_ROUTE_RELATION = "debarchive-haproxy-route"
 class DebarchiveOperatorCharm(ops.CharmBase):
     """Charm the application."""
 
+    _stored = ops.StoredState()
+
     def __init__(self, framework: ops.Framework):
         super().__init__(framework)
+
+        self._stored.set_default(hostname=None, secret_token=None)
 
         self.database = DatabaseRequires(
             self, relation_name="database", database_name="debarchive"
@@ -35,19 +39,26 @@ class DebarchiveOperatorCharm(ops.CharmBase):
         framework.observe(self.on.install, self._on_install)
         framework.observe(self.on.start, self._on_start)
         framework.observe(self.on.config_changed, self._on_config_changed)
-        framework.observe(self.database.on.database_created, self._on_database_created)
-        framework.observe(self.database.on.endpoints_changed, self._on_database_created)
+        framework.observe(self.database.on.database_created, self._on_database_configured)
+        framework.observe(self.database.on.endpoints_changed, self._on_database_configured)
+
         self.debarchive_haproxy_route = HaproxyRouteRequirer(
             self, relation_name=HAPROXY_ROUTE_RELATION
         )
-
-        self.framework.observe(
+        framework.observe(
             self.on[HAPROXY_ROUTE_RELATION].relation_joined,
             self._on_haproxy_route_relation_joined,
         )
-        self.framework.observe(
+        framework.observe(
             self.on[HAPROXY_ROUTE_RELATION].relation_changed,
             self._on_haproxy_route_relation_joined,
+        )
+
+        framework.observe(
+            self.on.landscape_server_relation_joined, self._on_landscape_server_changed
+        )
+        framework.observe(
+            self.on.landscape_server_relation_changed, self._on_landscape_server_changed
         )
 
     @property
@@ -94,7 +105,6 @@ class DebarchiveOperatorCharm(ops.CharmBase):
 
             if my_snap.present:
                 my_snap.set({"deb.archive.server.port": str(port)})
-                my_snap.restart()
 
                 for opened_port in self.unit.opened_ports():
                     self.unit.close_port(opened_port.protocol, opened_port.port)
@@ -105,13 +115,11 @@ class DebarchiveOperatorCharm(ops.CharmBase):
             self.unit.status = ops.BlockedStatus("Failed to apply configuration")
             return
 
-        # Republish the haproxy-route requirements so any related haproxy picks
-        # up the (potentially changed) port.
         self._provide_haproxy_route_requirements()
 
         self.unit.status = ops.ActiveStatus()
 
-    def _on_database_created(self, event):
+    def _on_database_configured(self, event):
         """Update database information for relation in the snap."""
         endpoints_str = event.endpoints or ""
         username = event.username or ""
@@ -119,7 +127,7 @@ class DebarchiveOperatorCharm(ops.CharmBase):
         database = event.database or ""
         endpoint = endpoints_str.split(",")[0] if endpoints_str else ""
 
-        if not endpoint or not username or not password or not database:
+        if not all([endpoint, username, password, database]):
             event.defer()
             return
 
@@ -161,6 +169,56 @@ class DebarchiveOperatorCharm(ops.CharmBase):
             unit_address=unit_ip,
             hostname="https://" + unit_ip,
         )
+
+    def _on_landscape_server_changed(self, event):
+        """Store data published by the Landscape Server charm."""
+        if event.app is None:
+            logger.warning("landscape-server relation-changed fired without an app; deferring")
+            event.defer()
+            return
+
+        app_data = event.relation.data[event.app]
+        logger.info("landscape-server relation data keys: %s", sorted(app_data.keys()))
+
+        hostname = app_data.get("hostname")
+        if hostname:
+            self._stored.hostname = hostname
+            logger.info("Stored Landscape hostname: %s", hostname)
+        else:
+            logger.info("landscape-server has not published a hostname yet")
+
+        # The secret token is independent of the hostname: set it whenever a
+        # secret-token-id is available, even if the hostname hasn't been published.
+        secret_id = app_data.get("secret-token-id")
+        if not secret_id:
+            logger.info("landscape-server has not published a secret-token-id yet; deferring")
+            event.defer()
+            return
+
+        try:
+            secret = self.model.get_secret(id=secret_id)
+            content = secret.get_content(refresh=True)
+        except (ops.SecretNotFoundError, ops.ModelError):
+            logger.warning("no secret token for secret-token-id %s", secret_id)
+            self.unit.status = ops.BlockedStatus("no secret token")
+            return
+
+        secret_token = content.get("secret-token")
+        if not secret_token:
+            logger.warning("secret-token-id %s does not contain a secret-token", secret_id)
+            self.unit.status = ops.BlockedStatus("no secret token")
+            return
+
+        try:
+            debarchive.set_secret_token(content)
+        except (snap.SnapError, snap.SnapNotFoundError):
+            logger.exception("failed to configure debarchive secret token")
+            self.unit.status = ops.BlockedStatus("Failed to configure secret token")
+            return
+
+        self._stored.secret_token = secret_token
+        self.unit.status = ops.ActiveStatus()
+        logger.info("Set debarchive secret token from secret-token-id %s", secret_id)
 
 
 if __name__ == "__main__":  # pragma: nocover

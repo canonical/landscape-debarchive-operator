@@ -17,3 +17,8 @@ lint:
 .PHONY: format
 format:
 	uv run tox -e format
+
+# packing
+.PHONY: pack
+pack:
+	charmcraft pack

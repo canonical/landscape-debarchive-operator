@@ -43,7 +43,7 @@ def test_database_relation(juju):
 
     juju.wait(jubilant.all_active)
 
-    relations = set(juju.status().apps["landscape-debarchive"].relations)
+    relations = set(juju.status().apps[SNAP_NAME].relations)
 
     assert "database" in relations
 
@@ -57,9 +57,6 @@ def test_haproxy_route_relation(juju):
     )
 
     def _relation_ready(status: jubilant.Status) -> bool:
-        # The haproxy charm may not reach `active` on its own (e.g. it can wait
-        # on TLS configuration), so only require that debarchive is active and
-        # the relation has been established.
         app = status.apps[APP_NAME]
         relation_present = "debarchive-haproxy-route" in app.relations
         debarchive_active = all(
