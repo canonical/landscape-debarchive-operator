@@ -62,12 +62,6 @@ class DebarchiveOperatorCharm(ops.CharmBase):
             self._on_haproxy_route_relation_joined,
         )
 
-        framework.observe(
-            self.on.landscape_server_relation_joined, self._on_landscape_server_changed
-        )
-        framework.observe(
-            self.on.landscape_server_relation_changed, self._on_landscape_server_changed
-        )
 
     @property
     def unit_ip(self) -> str | None:
