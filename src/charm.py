@@ -43,6 +43,12 @@ class DebarchiveOperatorCharm(ops.CharmBase):
         framework.observe(self.on.config_changed, self._on_config_changed)
         framework.observe(self.database.on.database_created, self._on_database_configured)
         framework.observe(self.database.on.endpoints_changed, self._on_database_configured)
+        framework.observe(
+            self.on.landscape_server_relation_joined, self._on_landscape_server_changed
+        )
+        framework.observe(
+            self.on.landscape_server_relation_changed, self._on_landscape_server_changed
+        )
 
         self.debarchive_haproxy_route = HaproxyRouteRequirer(
             self, relation_name=HAPROXY_ROUTE_RELATION
