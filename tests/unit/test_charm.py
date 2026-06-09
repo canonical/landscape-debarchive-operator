@@ -340,7 +340,7 @@ def test_set_secret_token(monkeypatch: pytest.MonkeyPatch):
 
     debarchive.set_secret_token({"secret-token": "jwt-secret"})
 
-    mock_snap.set.assert_called_once_with({"deb.archive.jwt.secret": "jwt-secret"})
+    mock_snap.set.assert_called_once_with({"deb.archive.jwt.secret": "and0LXNlY3JldA=="})
     mock_snap.restart.assert_not_called()
 
 
