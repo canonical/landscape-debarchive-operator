@@ -37,7 +37,7 @@ def test_install(monkeypatch: pytest.MonkeyPatch):
 
 
 def test_start(monkeypatch: pytest.MonkeyPatch):
-    """Test that the start hook opens the default port and sets the version/status."""
+    """Test that the start hook starts the workload and sets the version/status."""
     ctx = testing.Context(DebarchiveOperatorCharm)
 
     monkeypatch.setattr("charm.debarchive.start", MagicMock())
@@ -48,9 +48,7 @@ def test_start(monkeypatch: pytest.MonkeyPatch):
 
     assert state_out.workload_version == "1.0.0"
     assert state_out.unit_status == testing.ActiveStatus()
-
-    opened_ports = {p.port for p in state_out.opened_ports}
-    assert 8000 in opened_ports
+    assert not state_out.opened_ports
 
 
 def test_start_no_version(monkeypatch: pytest.MonkeyPatch):
@@ -66,9 +64,7 @@ def test_start_no_version(monkeypatch: pytest.MonkeyPatch):
     assert state_out.workload_version == ""
 
     assert state_out.unit_status == testing.ActiveStatus()
-
-    opened_ports = {p.port for p in state_out.opened_ports}
-    assert 8000 in opened_ports
+    assert not state_out.opened_ports
 
 
 def test_config_changed_success(monkeypatch: pytest.MonkeyPatch):
@@ -87,7 +83,7 @@ def test_config_changed_success(monkeypatch: pytest.MonkeyPatch):
 
     state_out = ctx.run(ctx.on.config_changed(), state_in)
 
-    mock_snap.set.assert_called_once_with({"deb.archive.server.port": "8080"})
+    mock_snap.set.assert_called_once_with({"deb.archive.server.gateway-port": "8080"})
     mock_snap.restart.assert_not_called()
 
     opened_ports = {p.port for p in state_out.opened_ports}
@@ -126,7 +122,7 @@ def test_config_changed_success_covers_ports(monkeypatch: pytest.MonkeyPatch):
 
     state_out = ctx.run(ctx.on.config_changed(), state_in)
 
-    mock_snap.set.assert_called_once_with({"deb.archive.server.port": "8080"})
+    mock_snap.set.assert_called_once_with({"deb.archive.server.gateway-port": "8080"})
     mock_snap.restart.assert_not_called()
 
     opened_ports = {p.port for p in state_out.opened_ports}
@@ -341,7 +337,7 @@ def test_set_secret_token(monkeypatch: pytest.MonkeyPatch):
 
     debarchive.set_secret_token({"secret-token": "jwt-secret"})
 
-    mock_snap.set.assert_called_once_with({"deb.archive.jwt.secret": "jwt-secret"})
+    mock_snap.set.assert_called_once_with({"deb.archive.jwt.secret": "and0LXNlY3JldA=="})
     mock_snap.restart.assert_not_called()
 
 
@@ -435,6 +431,14 @@ def test_landscape_server_relation_stores_hostname(monkeypatch: pytest.MonkeyPat
 
     mock_set_secret = MagicMock()
     monkeypatch.setattr("charm.debarchive.set_secret_token", mock_set_secret)
+    captured = {}
+
+    def fake_provide(self, **kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr(
+        "charm.HaproxyRouteRequirer.provide_haproxy_route_requirements", fake_provide
+    )
 
     secret = testing.Secret(tracked_content={"secret-token": "jwt-secret"})
     rel = testing.Relation(
@@ -445,13 +449,19 @@ def test_landscape_server_relation_stores_hostname(monkeypatch: pytest.MonkeyPat
             "secret-token-id": secret.id,
         },
     )
-    state_in = testing.State(relations=[rel], secrets=[secret])
+    haproxy_rel = testing.Relation(endpoint="debarchive-haproxy-route", interface="haproxy-route")
+    network = testing.Network(
+        "debarchive-haproxy-route",
+        bind_addresses=[testing.BindAddress([testing.Address("10.1.2.3")])],
+    )
+    state_in = testing.State(relations=[rel, haproxy_rel], secrets=[secret], networks={network})
 
     state_out = ctx.run(ctx.on.relation_changed(rel), state_in)
 
     stored = state_out.get_stored_state("_stored", owner_path="DebarchiveOperatorCharm")
     assert stored.content["hostname"] == "landscape.example.com"
     assert stored.content["secret_token"] == "jwt-secret"
+    assert captured["hostname"] == "landscape.example.com"
     mock_set_secret.assert_called_once_with({"secret-token": "jwt-secret"})
 
 
@@ -656,8 +666,30 @@ def test_database_created_configure_exception(monkeypatch: pytest.MonkeyPatch):
     )
 
 
-def test_haproxy_route_relation_joined_publishes(monkeypatch: pytest.MonkeyPatch):
-    """Test that joining the haproxy-route relation publishes the route requirements."""
+def test_haproxy_route_relation_joined_defers_without_landscape_hostname(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Test that joining the haproxy-route relation defers without a Landscape hostname."""
+    ctx = testing.Context(DebarchiveOperatorCharm)
+
+    provide = MagicMock()
+    monkeypatch.setattr("charm.HaproxyRouteRequirer.provide_haproxy_route_requirements", provide)
+
+    haproxy_rel = testing.Relation(endpoint="debarchive-haproxy-route", interface="haproxy-route")
+    network = testing.Network(
+        "debarchive-haproxy-route",
+        bind_addresses=[testing.BindAddress([testing.Address("10.1.2.3")])],
+    )
+    state_in = testing.State(relations=[haproxy_rel], networks={network})
+
+    state_out = ctx.run(ctx.on.relation_joined(haproxy_rel), state_in)
+
+    assert len(state_out.deferred) == 1
+    provide.assert_not_called()
+
+
+def test_haproxy_route_relation_uses_landscape_hostname(monkeypatch: pytest.MonkeyPatch):
+    """Test that the haproxy-route relation uses the Landscape hostname when available."""
     ctx = testing.Context(DebarchiveOperatorCharm)
 
     captured = {}
@@ -674,14 +706,20 @@ def test_haproxy_route_relation_joined_publishes(monkeypatch: pytest.MonkeyPatch
         "debarchive-haproxy-route",
         bind_addresses=[testing.BindAddress([testing.Address("10.1.2.3")])],
     )
-    state_in = testing.State(relations=[haproxy_rel], networks={network})
+    stored = testing.StoredState(
+        owner_path="DebarchiveOperatorCharm",
+        name="_stored",
+        content={"hostname": "landscape.example.com", "secret_token": None},
+    )
+    state_in = testing.State(relations=[haproxy_rel], networks={network}, stored_states=[stored])
 
     ctx.run(ctx.on.relation_joined(haproxy_rel), state_in)
 
     assert captured["unit_address"] == "10.1.2.3"
-    assert captured["hostname"] == "https://10.1.2.3"
-    assert captured["ports"] == [8000]
+    assert captured["hostname"] == "landscape.example.com"
+    assert captured["ports"] == [8100]
     assert captured["paths"] == ["/debarchive"]
+    assert captured["path_rewrite_expressions"] == [r"%[path,regsub(^/debarchive/?,/)]"]
     assert captured["service"].startswith("landscape-debarchive-")
 
 
@@ -701,6 +739,28 @@ def test_unit_ip_no_binding(monkeypatch: pytest.MonkeyPatch):
         assert charm.unit_ip is None
 
         charm._provide_haproxy_route_requirements()
+        provide.assert_not_called()
+
+
+def test_haproxy_route_not_published_without_unit_ip(monkeypatch: pytest.MonkeyPatch):
+    """Test that route requirements are not published without a unit IP."""
+    ctx = testing.Context(DebarchiveOperatorCharm)
+    stored = testing.StoredState(
+        owner_path="DebarchiveOperatorCharm",
+        name="_stored",
+        content={"hostname": "landscape.example.com", "secret_token": None},
+    )
+
+    with ctx(ctx.on.start(), testing.State(stored_states=[stored])) as manager:
+        manager.run()
+        charm = manager.charm
+        monkeypatch.setattr(charm.model, "get_binding", lambda name: None)
+        provide = MagicMock()
+        monkeypatch.setattr(
+            charm.debarchive_haproxy_route, "provide_haproxy_route_requirements", provide
+        )
+
+        assert charm._provide_haproxy_route_requirements() is False
         provide.assert_not_called()
 
 

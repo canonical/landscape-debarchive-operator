@@ -14,8 +14,6 @@ charm-libs:
     version: "1"
 
 platforms:
-  #ubuntu@22.04:amd64: TBD - Release for jammy as well?
-  #ubuntu@22.04:arm64:
   ubuntu@24.04:amd64:
   ubuntu@24.04:arm64:
 
@@ -43,6 +41,6 @@ requires:
 config:
   options:
     server-port:
-      default: 8000
+      default: 8100
       type: int
       description: The port debarchive server will listen on.

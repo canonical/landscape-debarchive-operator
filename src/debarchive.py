@@ -80,10 +80,11 @@ def get_version() -> str | None:
 def set_secret_token(content: dict[str, str]) -> None:
     """Set the jwt secret token in the snap configuration."""
     secret_token = content["secret-token"]
+    encoded_secret_token = base64.b64encode(secret_token.encode("utf-8")).decode("utf-8")
     debarchive_snap = snap.SnapCache()[DEBARCHIVE_SNAP_NAME]
     debarchive_snap.set(
         {
-            "deb.archive.jwt.secret": secret_token,
+            "deb.archive.jwt.secret": encoded_secret_token,
         }
     )
 
