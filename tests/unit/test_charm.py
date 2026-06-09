@@ -503,7 +503,7 @@ class TestLandscapeServerRelation:
         mock_set_secret.assert_not_called()
 
     def test_landscape_server_relation_no_data(self, monkeypatch: pytest.MonkeyPatch):
-        """Test that nothing is stored or configured and the event defers when no data is published."""
+        """Test missing relation data does not store values and defers the event."""
         ctx = testing.Context(DebarchiveOperatorCharm)
 
         mock_set_secret = MagicMock()
