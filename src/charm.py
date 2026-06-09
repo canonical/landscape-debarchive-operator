@@ -62,7 +62,6 @@ class DebarchiveOperatorCharm(ops.CharmBase):
             self._on_haproxy_route_relation_joined,
         )
 
-
     @property
     def unit_ip(self) -> str | None:
         """Return the IP address bound to the haproxy-route endpoint."""
