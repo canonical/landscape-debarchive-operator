@@ -15,9 +15,9 @@ DEBARCHIVE_SNAP_NAME = "landscape-debarchive"
 SNAPS_TO_INSTALL = [(DEBARCHIVE_SNAP_NAME, {"channel": "beta"})]
 
 
-def install() -> None:
+def install(unit_ip: str | None = None) -> None:
     """Handle installing anything debarchive specific (e.g., temporal snap, etc,..)."""
-    _install_snap_packages()
+    _install_snap_packages(unit_ip)
     set_pagination_secret()
 
 
@@ -27,8 +27,9 @@ def start() -> None:
     # Ideally, this function should only return once the workload is ready to use.
 
 
-def _install_snap_packages():
+def _install_snap_packages(unit_ip: str | None = None):
     """Install snaps required for debarchive."""
+    unit_ip = "0.0.0.0" if unit_ip is None else unit_ip
     for snap_name, snap_version in SNAPS_TO_INSTALL:
         try:
             snap_cache = snap.SnapCache()
@@ -39,7 +40,7 @@ def _install_snap_packages():
                     snap_package.ensure(snap.SnapState.Latest, channel=snap_version["channel"])
 
             if snap_name == DEBARCHIVE_SNAP_NAME:
-                snap_package.set({"deb.archive.server.host": "0.0.0.0"})
+                snap_package.set({"deb.archive.server.host": unit_ip})
 
             # TODO: if we want a specific revision of the snap (to match charm revisions to
             # snap revisions) handle here, then hold the package

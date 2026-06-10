@@ -29,7 +29,7 @@ class TestCharmInstallAndStartup:
 
         # install() configures the host and then sets a generated pagination secret.
         # The snap configure hook restarts the service for these config changes.
-        mock_snap.set.assert_any_call({"deb.archive.server.host": "0.0.0.0"})
+        mock_snap.set.assert_any_call({"deb.archive.server.host": "192.0.2.0"})
         pagination_call = next(
             call.args[0]
             for call in mock_snap.set.call_args_list

@@ -79,7 +79,7 @@ class DebarchiveOperatorCharm(ops.CharmBase):
 
     def _on_install(self, event: ops.InstallEvent):
         """Install the workload on the machine."""
-        debarchive.install()
+        debarchive.install(self.unit_ip)
 
     def _on_start(self, event: ops.StartEvent):
         """Handle start event."""
