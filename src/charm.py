@@ -79,7 +79,7 @@ class DebarchiveOperatorCharm(ops.CharmBase):
 
     def _on_install(self, event: ops.InstallEvent):
         """Install the workload on the machine."""
-        debarchive.install(self.unit_ip)
+        debarchive.install()
 
     def _on_start(self, event: ops.StartEvent):
         """Handle start event."""
@@ -155,6 +155,7 @@ class DebarchiveOperatorCharm(ops.CharmBase):
         if not unit_ip:
             return False
 
+        debarchive.set_host(unit_ip)
         port = debarchive.get_port()
 
         self.debarchive_haproxy_route.provide_haproxy_route_requirements(

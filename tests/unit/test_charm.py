@@ -27,9 +27,8 @@ class TestCharmInstallAndStartup:
 
         mock_snap.ensure.assert_called_once_with(snap.SnapState.Latest, channel="beta")
 
-        # install() configures the host and then sets a generated pagination secret.
-        # The snap configure hook restarts the service for these config changes.
-        mock_snap.set.assert_any_call({"deb.archive.server.host": "192.0.2.0"})
+        # install() sets a generated pagination secret. The host is refreshed
+        # when haproxy route requirements are provided.
         pagination_call = next(
             call.args[0]
             for call in mock_snap.set.call_args_list
@@ -37,7 +36,7 @@ class TestCharmInstallAndStartup:
         )
         assert list(pagination_call) == ["deb.archive.pagination.secret"]
         assert pagination_call["deb.archive.pagination.secret"]
-        assert mock_snap.set.call_count == 2
+        assert mock_snap.set.call_count == 1
         mock_snap.restart.assert_not_called()
 
     def test_start(self, monkeypatch: pytest.MonkeyPatch):
@@ -204,7 +203,6 @@ class TestDebarchiveInstall:
         debarchive.install()
 
         assert mock_snap_inst.ensured is True
-        assert mock_snap_inst.set_called["deb.archive.server.host"] == "0.0.0.0"
         assert mock_snap_inst.set_called["deb.archive.pagination.secret"]
 
     def test_install_snap_packages_skips(self, monkeypatch: pytest.MonkeyPatch):
@@ -355,6 +353,19 @@ class TestDebarchiveConfig:
         assert config["deb.archive.pagination.secret"]
         mock_snap.restart.assert_not_called()
 
+    def test_set_host(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that set_host writes the debarchive server host."""
+        mock_snap = MagicMock()
+        mock_cache = MagicMock()
+        mock_cache.__getitem__.return_value = mock_snap
+        monkeypatch.setattr("debarchive.snap.SnapCache", lambda: mock_cache)
+
+        debarchive.set_host("10.1.2.3")
+
+        mock_cache.__getitem__.assert_called_once_with("landscape-debarchive")
+        mock_snap.set.assert_called_once_with({"deb.archive.server.host": "10.1.2.3"})
+        mock_snap.restart.assert_not_called()
+
     def test_get_port(self, monkeypatch: pytest.MonkeyPatch):
         """Test that get_port reads and returns the configured snap port as an integer."""
         mock_snap = MagicMock()
@@ -468,8 +479,10 @@ class TestLandscapeServerRelation:
         ctx = testing.Context(DebarchiveOperatorCharm)
 
         mock_set_secret = MagicMock()
+        mock_set_host = MagicMock()
         mock_get_port = MagicMock(return_value=8100)
         monkeypatch.setattr("charm.debarchive.set_secret_token", mock_set_secret)
+        monkeypatch.setattr("charm.debarchive.set_host", mock_set_host)
         monkeypatch.setattr("charm.debarchive.get_port", mock_get_port)
 
         secret = testing.Secret(tracked_content={"secret-token": "jwt-secret"})
@@ -489,6 +502,7 @@ class TestLandscapeServerRelation:
         assert stored.content["hostname"] == "landscape.example.com"
         assert stored.content["secret_token"] == "jwt-secret"
         mock_set_secret.assert_called_once_with({"secret-token": "jwt-secret"})
+        mock_set_host.assert_called_once_with("192.0.2.0")
         mock_get_port.assert_called_once_with()
 
     def test_landscape_server_relation_no_app(self, monkeypatch: pytest.MonkeyPatch):
@@ -568,8 +582,10 @@ class TestLandscapeServerRelation:
         ctx = testing.Context(DebarchiveOperatorCharm)
 
         mock_set_secret = MagicMock()
+        mock_set_host = MagicMock()
         mock_get_port = MagicMock(return_value=8100)
         monkeypatch.setattr("charm.debarchive.set_secret_token", mock_set_secret)
+        monkeypatch.setattr("charm.debarchive.set_host", mock_set_host)
         monkeypatch.setattr("charm.debarchive.get_port", mock_get_port)
 
         secret = testing.Secret(tracked_content={"secret-token": "jwt-secret"})
@@ -594,13 +610,16 @@ class TestLandscapeServerRelation:
         stored = state_out.get_stored_state("_stored", owner_path="DebarchiveOperatorCharm")
         assert stored.content["secret_token"] == "jwt-secret"
         mock_set_secret.assert_called_once_with({"secret-token": "jwt-secret"})
+        mock_set_host.assert_called_once_with("192.0.2.0")
         mock_get_port.assert_called_once_with()
 
     def test_landscape_server_relation_secret_not_found(self, monkeypatch: pytest.MonkeyPatch):
         """Test that the unit blocks when the advertised secret cannot be read."""
         ctx = testing.Context(DebarchiveOperatorCharm)
 
+        mock_set_host = MagicMock()
         mock_get_port = MagicMock(return_value=8100)
+        monkeypatch.setattr("charm.debarchive.set_host", mock_set_host)
         monkeypatch.setattr("charm.debarchive.get_port", mock_get_port)
 
         rel = testing.Relation(
@@ -616,6 +635,7 @@ class TestLandscapeServerRelation:
         state_out = ctx.run(ctx.on.relation_changed(rel), state_in)
 
         assert state_out.unit_status == testing.BlockedStatus("no secret token")
+        mock_set_host.assert_called_once_with("192.0.2.0")
         mock_get_port.assert_called_once_with()
 
     def test_landscape_server_relation_secret_missing_token(self, monkeypatch: pytest.MonkeyPatch):
@@ -623,8 +643,10 @@ class TestLandscapeServerRelation:
         ctx = testing.Context(DebarchiveOperatorCharm)
 
         mock_set_secret = MagicMock()
+        mock_set_host = MagicMock()
         mock_get_port = MagicMock(return_value=8100)
         monkeypatch.setattr("charm.debarchive.set_secret_token", mock_set_secret)
+        monkeypatch.setattr("charm.debarchive.set_host", mock_set_host)
         monkeypatch.setattr("charm.debarchive.get_port", mock_get_port)
 
         secret = testing.Secret(tracked_content={"other-key": "jwt-secret"})
@@ -642,6 +664,7 @@ class TestLandscapeServerRelation:
 
         assert state_out.unit_status == testing.BlockedStatus("no secret token")
         mock_set_secret.assert_not_called()
+        mock_set_host.assert_called_once_with("192.0.2.0")
         mock_get_port.assert_called_once_with()
 
     def test_landscape_server_relation_configure_secret_failure(
@@ -654,7 +677,9 @@ class TestLandscapeServerRelation:
             "charm.debarchive.set_secret_token",
             MagicMock(side_effect=snap.SnapError("snapd unavailable")),
         )
+        mock_set_host = MagicMock()
         mock_get_port = MagicMock(return_value=8100)
+        monkeypatch.setattr("charm.debarchive.set_host", mock_set_host)
         monkeypatch.setattr("charm.debarchive.get_port", mock_get_port)
 
         secret = testing.Secret(tracked_content={"secret-token": "jwt-secret"})
@@ -673,6 +698,7 @@ class TestLandscapeServerRelation:
         assert state_out.unit_status == testing.BlockedStatus("Failed to configure secret token")
         stored = state_out.get_stored_state("_stored", owner_path="DebarchiveOperatorCharm")
         assert stored.content["secret_token"] is None
+        mock_set_host.assert_called_once_with("192.0.2.0")
         mock_get_port.assert_called_once_with()
 
 
@@ -705,7 +731,9 @@ class TestHaproxyRouteRelation:
     def test_relation_uses_landscape_hostname(self, monkeypatch: pytest.MonkeyPatch):
         """Test that the haproxy-route relation uses the Landscape hostname when available."""
         ctx = testing.Context(DebarchiveOperatorCharm)
+        mock_set_host = MagicMock()
         mock_get_port = MagicMock(return_value=8100)
+        monkeypatch.setattr("charm.debarchive.set_host", mock_set_host)
         monkeypatch.setattr("charm.debarchive.get_port", mock_get_port)
 
         captured = {}
@@ -741,6 +769,7 @@ class TestHaproxyRouteRelation:
         assert captured["paths"] == ["/debarchive"]
         assert captured["path_rewrite_expressions"] == [r"%[path,regsub(^/debarchive/?,/)]"]
         assert captured["service"].startswith("landscape-debarchive-")
+        mock_set_host.assert_called_once_with("10.1.2.3")
         mock_get_port.assert_called_once_with()
 
     def test_unit_ip_no_binding(self, monkeypatch: pytest.MonkeyPatch):
