@@ -106,11 +106,6 @@ class DebarchiveOperatorCharm(ops.CharmBase):
             if my_snap.present:
                 my_snap.set({"deb.archive.server.gateway-port": str(port)})
 
-                for opened_port in self.unit.opened_ports():
-                    self.unit.close_port(opened_port.protocol, opened_port.port)
-
-                self.unit.open_port("tcp", int(port))
-
         except snap.SnapError:
             self.unit.status = ops.BlockedStatus("Failed to apply configuration")
             return
@@ -160,7 +155,7 @@ class DebarchiveOperatorCharm(ops.CharmBase):
         if not unit_ip:
             return False
 
-        port = 8100
+        port = debarchive.get_port()
 
         self.debarchive_haproxy_route.provide_haproxy_route_requirements(
             service=f"landscape-debarchive-{self.model.uuid}",

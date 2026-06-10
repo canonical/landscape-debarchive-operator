@@ -100,3 +100,9 @@ def set_pagination_secret() -> None:
             "deb.archive.pagination.secret": pagination_secret,
         }
     )
+
+
+def get_port() -> int:
+    """Get the gateway port for the debarchive server."""
+    debarchive_snap = snap.SnapCache()[DEBARCHIVE_SNAP_NAME]
+    return int(debarchive_snap.get("deb.archive.server.gateway-port"))
