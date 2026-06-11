@@ -41,6 +41,10 @@ class DebarchiveOperatorCharm(ops.CharmBase):
         framework.observe(self.on.install, self._on_install)
         framework.observe(self.on.start, self._on_start)
         framework.observe(self.on.config_changed, self._on_config_changed)
+        framework.observe(self.on.show_config_action, self._on_show_config_action)
+        framework.observe(self.on.check_health_action, self._on_check_health_action)
+        framework.observe(self.on.show_version_action, self._on_show_version_action)
+        framework.observe(self.on.restart_snap_action, self._on_restart_snap_action)
         framework.observe(self.database.on.database_created, self._on_database_configured)
         framework.observe(self.database.on.endpoints_changed, self._on_database_configured)
         framework.observe(
@@ -91,28 +95,63 @@ class DebarchiveOperatorCharm(ops.CharmBase):
         self.unit.status = ops.ActiveStatus()
 
     def _on_config_changed(self, event):
-        """Represent an example of what the config would look like for the snap.
+        """Update debarchive configuration from charm config."""
+        gateway_port = int(self.config["gateway-port"])
+        log_level = str(self.config["log-level"])
+        log_human_readable = bool(self.config["log-human-readable"])
 
-        We would ideally do this in `src/debarchive.py` or something more organized.
-        """
-        port = self.config["server-port"]
-
-        self.unit.status = ops.MaintenanceStatus(f"Configuring port to {port}...")
+        self.unit.status = ops.MaintenanceStatus("Configuring debarchive...")
 
         try:
-            cache = snap.SnapCache()
-            my_snap = cache["landscape-debarchive"]
-
-            if my_snap.present:
-                my_snap.set({"deb.archive.server.gateway-port": str(port)})
-
-        except snap.SnapError:
+            debarchive.configure(gateway_port, log_level, log_human_readable)
+        except ValueError:
+            self.unit.status = ops.BlockedStatus(
+                "Invalid log-level; expected debug, warn, error, info, trace, or fatal"
+            )
+            return
+        except (snap.SnapError, snap.SnapNotFoundError):
             self.unit.status = ops.BlockedStatus("Failed to apply configuration")
             return
 
         self._provide_haproxy_route_requirements()
 
         self.unit.status = ops.ActiveStatus()
+
+    def _on_show_config_action(self, event: ops.ActionEvent) -> None:
+        """Show redacted debarchive snap configuration."""
+        try:
+            event.set_results(debarchive.get_config())
+        except (snap.SnapError, snap.SnapNotFoundError) as e:
+            event.fail(f"Failed to read debarchive configuration: {e}")
+
+    def _on_check_health_action(self, event: ops.ActionEvent) -> None:
+        """Check whether debarchive appears healthy."""
+        try:
+            result = debarchive.check_health()
+        except (snap.SnapError, snap.SnapNotFoundError) as e:
+            event.fail(f"Failed to check debarchive health: {e}")
+            return
+
+        event.set_results(result)
+        if not result["healthy"]:
+            event.fail(str(result["message"]))
+
+    def _on_show_version_action(self, event: ops.ActionEvent) -> None:
+        """Show debarchive snap version information."""
+        try:
+            event.set_results(debarchive.get_version_info())
+        except (snap.SnapError, snap.SnapNotFoundError) as e:
+            event.fail(f"Failed to read debarchive version: {e}")
+
+    def _on_restart_snap_action(self, event: ops.ActionEvent) -> None:
+        """Restart debarchive snap services."""
+        try:
+            debarchive.restart()
+        except (snap.SnapError, snap.SnapNotFoundError) as e:
+            event.fail(f"Failed to restart debarchive snap: {e}")
+            return
+
+        event.set_results({"restarted": True})
 
     def _on_database_configured(self, event):
         """Update database information for relation in the snap."""

@@ -73,7 +73,7 @@ class TestCharmInstallAndStartup:
 
 class TestCharmConfigChanged:
     def test_config_changed_success(self, monkeypatch: pytest.MonkeyPatch):
-        """Test that changing the port config updates the snap."""
+        """Test that changing config updates the debarchive snap settings."""
         ctx = testing.Context(DebarchiveOperatorCharm)
 
         mock_snap = MagicMock()
@@ -81,14 +81,27 @@ class TestCharmConfigChanged:
 
         mock_cache = MagicMock()
         mock_cache.__getitem__.return_value = mock_snap
-        monkeypatch.setattr("charm.snap.SnapCache", lambda: mock_cache)
+        monkeypatch.setattr("debarchive.snap.SnapCache", lambda: mock_cache)
 
         port_8000 = testing.TCPPort(protocol="tcp", port=8000)
-        state_in = testing.State(config={"server-port": 8080}, opened_ports=[port_8000])
+        state_in = testing.State(
+            config={
+                "gateway-port": 8080,
+                "log-level": "debug",
+                "log-human-readable": True,
+            },
+            opened_ports=[port_8000],
+        )
 
         state_out = ctx.run(ctx.on.config_changed(), state_in)
 
-        mock_snap.set.assert_called_once_with({"deb.archive.server.gateway-port": "8080"})
+        mock_snap.set.assert_called_once_with(
+            {
+                "deb.archive.server.gateway-port": "8080",
+                "deb.archive.logging.level": "debug",
+                "deb.archive.logging.human-readable": "true",
+            }
+        )
         mock_snap.restart.assert_not_called()
 
         opened_ports = {p.port for p in state_out.opened_ports}
@@ -102,15 +115,17 @@ class TestCharmConfigChanged:
 
         mock_cache = MagicMock()
         mock_cache.__getitem__.side_effect = snap.SnapError("Mock failure")
-        monkeypatch.setattr("charm.snap.SnapCache", lambda: mock_cache)
+        monkeypatch.setattr("debarchive.snap.SnapCache", lambda: mock_cache)
 
-        state_in = testing.State(config={"server-port": 8080})
+        state_in = testing.State(
+            config={"gateway-port": 8080, "log-level": "info", "log-human-readable": False}
+        )
         state_out = ctx.run(ctx.on.config_changed(), state_in)
 
         assert state_out.unit_status == testing.BlockedStatus("Failed to apply configuration")
 
-    def test_config_changed_success_covers_ports(self, monkeypatch: pytest.MonkeyPatch):
-        """Test the happy path leaves existing unit ports unchanged."""
+    def test_config_changed_normalizes_log_level(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that supported log levels are normalized before being applied."""
         ctx = testing.Context(DebarchiveOperatorCharm)
 
         mock_snap = MagicMock()
@@ -118,15 +133,22 @@ class TestCharmConfigChanged:
 
         mock_cache = MagicMock()
         mock_cache.__getitem__.return_value = mock_snap
-        monkeypatch.setattr("charm.snap.SnapCache", lambda: mock_cache)
+        monkeypatch.setattr("debarchive.snap.SnapCache", lambda: mock_cache)
 
         state_in = testing.State(
-            config={"server-port": 8080}, opened_ports=[testing.TCPPort(8000)]
+            config={"gateway-port": 8101, "log-level": "TRACE", "log-human-readable": False},
+            opened_ports=[testing.TCPPort(8000)],
         )
 
         state_out = ctx.run(ctx.on.config_changed(), state_in)
 
-        mock_snap.set.assert_called_once_with({"deb.archive.server.gateway-port": "8080"})
+        mock_snap.set.assert_called_once_with(
+            {
+                "deb.archive.server.gateway-port": "8101",
+                "deb.archive.logging.level": "trace",
+                "deb.archive.logging.human-readable": "false",
+            }
+        )
         mock_snap.restart.assert_not_called()
 
         opened_ports = {p.port for p in state_out.opened_ports}
@@ -143,12 +165,27 @@ class TestCharmConfigChanged:
 
         mock_cache = MagicMock()
         mock_cache.__getitem__.return_value = mock_snap
-        monkeypatch.setattr("charm.snap.SnapCache", lambda: mock_cache)
+        monkeypatch.setattr("debarchive.snap.SnapCache", lambda: mock_cache)
 
-        state_in = testing.State(config={"server-port": 8080})
+        state_in = testing.State(
+            config={"gateway-port": 8080, "log-level": "warn", "log-human-readable": False}
+        )
         state_out = ctx.run(ctx.on.config_changed(), state_in)
 
         assert state_out.unit_status == testing.BlockedStatus("Failed to apply configuration")
+
+    def test_config_changed_invalid_log_level(self):
+        """Test that unsupported log levels put the unit into BlockedStatus."""
+        ctx = testing.Context(DebarchiveOperatorCharm)
+
+        state_in = testing.State(
+            config={"gateway-port": 8080, "log-level": "verbose", "log-human-readable": False}
+        )
+        state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+        assert state_out.unit_status == testing.BlockedStatus(
+            "Invalid log-level; expected debug, warn, error, info, trace, or fatal"
+        )
 
     def test_config_changed_snap_not_present(self, monkeypatch: pytest.MonkeyPatch):
         """Test the 'False' branch of the `if my_snap.present` statement."""
@@ -159,9 +196,11 @@ class TestCharmConfigChanged:
 
         mock_cache = MagicMock()
         mock_cache.__getitem__.return_value = mock_snap
-        monkeypatch.setattr("charm.snap.SnapCache", lambda: mock_cache)
+        monkeypatch.setattr("debarchive.snap.SnapCache", lambda: mock_cache)
 
-        state_in = testing.State(config={"server-port": 8080})
+        state_in = testing.State(
+            config={"gateway-port": 8080, "log-level": "info", "log-human-readable": False}
+        )
         state_out = ctx.run(ctx.on.config_changed(), state_in)
 
         mock_snap.set.assert_not_called()
@@ -304,6 +343,152 @@ class TestDebarchiveConfig:
 
         assert debarchive.get_version() is None
 
+    def test_get_version_info(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that get_version_info returns snap version metadata."""
+        mock_snap = MagicMock()
+        mock_snap.present = True
+        mock_snap.revision = 42
+        mock_snap.version = "1.2.3"
+        mock_snap.channel = "beta"
+
+        mock_cache = MagicMock()
+        mock_cache.__getitem__.return_value = mock_snap
+        monkeypatch.setattr("debarchive.snap.SnapCache", lambda: mock_cache)
+
+        assert debarchive.get_version_info() == {
+            "installed": True,
+            "revision": "42",
+            "version": "1.2.3",
+            "channel": "beta",
+        }
+
+    def test_get_config(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that get_config returns all typed snap config with secrets redacted."""
+        mock_snap = MagicMock()
+        mock_snap.present = True
+        mock_snap.get.return_value = {
+            "deb": {
+                "archive": {
+                    "server": {"gateway-port": 8100},
+                    "database": {"user": "user", "password": "pass"},
+                    "jwt": {"secret": "jwt-secret"},
+                    "logging": {"level": "info", "human-readable": False},
+                }
+            }
+        }
+
+        mock_cache = MagicMock()
+        mock_cache.__getitem__.return_value = mock_snap
+        monkeypatch.setattr("debarchive.snap.SnapCache", lambda: mock_cache)
+
+        assert debarchive.get_config() == {
+            "deb": {
+                "archive": {
+                    "server": {"gateway-port": 8100},
+                    "database": {"user": "user", "password": "<redacted>"},
+                    "jwt": {"secret": "<redacted>"},
+                    "logging": {"level": "info", "human-readable": False},
+                }
+            }
+        }
+        mock_snap.get.assert_called_once_with(None, typed=True)
+
+    def test_get_config_snap_not_present(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that get_config returns no config when the snap is absent."""
+        mock_snap = MagicMock()
+        mock_snap.present = False
+        mock_cache = MagicMock()
+        mock_cache.__getitem__.return_value = mock_snap
+        monkeypatch.setattr("debarchive.snap.SnapCache", lambda: mock_cache)
+
+        assert debarchive.get_config() == {}
+        mock_snap.get.assert_not_called()
+
+    def test_check_health_healthy(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that check_health reports healthy when all services are active."""
+        mock_snap = MagicMock()
+        mock_snap.present = True
+        mock_snap.services = {"daemon": {"active": True}}
+        mock_cache = MagicMock()
+        mock_cache.__getitem__.return_value = mock_snap
+        monkeypatch.setattr("debarchive.snap.SnapCache", lambda: mock_cache)
+
+        assert debarchive.check_health() == {
+            "installed": True,
+            "healthy": True,
+            "message": "debarchive snap services are active",
+        }
+
+    def test_check_health_inactive_service(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that check_health reports inactive services."""
+        mock_snap = MagicMock()
+        mock_snap.present = True
+        mock_snap.services = {
+            "api": {"active": False},
+            "worker": {"active": True},
+        }
+        mock_cache = MagicMock()
+        mock_cache.__getitem__.return_value = mock_snap
+        monkeypatch.setattr("debarchive.snap.SnapCache", lambda: mock_cache)
+
+        assert debarchive.check_health() == {
+            "installed": True,
+            "healthy": False,
+            "message": "inactive services: api",
+        }
+
+    def test_check_health_snap_not_present(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that check_health reports an absent snap."""
+        mock_snap = MagicMock()
+        mock_snap.present = False
+        mock_cache = MagicMock()
+        mock_cache.__getitem__.return_value = mock_snap
+        monkeypatch.setattr("debarchive.snap.SnapCache", lambda: mock_cache)
+
+        assert debarchive.check_health() == {
+            "installed": False,
+            "healthy": False,
+            "message": "debarchive snap is not installed",
+        }
+
+    def test_check_health_no_services(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that check_health reports when snap services are absent."""
+        mock_snap = MagicMock()
+        mock_snap.present = True
+        mock_snap.services = {}
+        mock_cache = MagicMock()
+        mock_cache.__getitem__.return_value = mock_snap
+        monkeypatch.setattr("debarchive.snap.SnapCache", lambda: mock_cache)
+
+        assert debarchive.check_health() == {
+            "installed": True,
+            "healthy": False,
+            "message": "debarchive snap has no services",
+        }
+
+    def test_restart(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that restart restarts the debarchive snap."""
+        mock_snap = MagicMock()
+        mock_snap.present = True
+        mock_cache = MagicMock()
+        mock_cache.__getitem__.return_value = mock_snap
+        monkeypatch.setattr("debarchive.snap.SnapCache", lambda: mock_cache)
+
+        debarchive.restart()
+
+        mock_snap.restart.assert_called_once_with()
+
+    def test_restart_snap_not_present(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that restart raises when the debarchive snap is absent."""
+        mock_snap = MagicMock()
+        mock_snap.present = False
+        mock_cache = MagicMock()
+        mock_cache.__getitem__.return_value = mock_snap
+        monkeypatch.setattr("debarchive.snap.SnapCache", lambda: mock_cache)
+
+        with pytest.raises(snap.SnapNotFoundError):
+            debarchive.restart()
+
     def test_configure_database(self, monkeypatch: pytest.MonkeyPatch):
         """Test that configure_database sets the correct snap keys."""
         mock_snap = MagicMock()
@@ -325,6 +510,30 @@ class TestDebarchiveConfig:
             }
         )
         mock_snap.restart.assert_not_called()
+
+    def test_configure(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that configure sets the application snap keys."""
+        mock_snap = MagicMock()
+        mock_snap.present = True
+        mock_cache = MagicMock()
+        mock_cache.__getitem__.return_value = mock_snap
+        monkeypatch.setattr("debarchive.snap.SnapCache", lambda: mock_cache)
+
+        debarchive.configure(8101, "ERROR", True)
+
+        mock_snap.set.assert_called_once_with(
+            {
+                "deb.archive.server.gateway-port": "8101",
+                "deb.archive.logging.level": "error",
+                "deb.archive.logging.human-readable": "true",
+            }
+        )
+        mock_snap.restart.assert_not_called()
+
+    def test_configure_rejects_invalid_log_level(self):
+        """Test that configure rejects unsupported log levels."""
+        with pytest.raises(ValueError, match="unsupported log level: verbose"):
+            debarchive.configure(8100, "verbose", False)
 
     def test_set_secret_token(self, monkeypatch: pytest.MonkeyPatch):
         """Test that set_secret_token writes the JWT secret."""
@@ -377,6 +586,143 @@ class TestDebarchiveConfig:
         assert debarchive.get_port() == 8100
         mock_cache.__getitem__.assert_called_once_with("landscape-debarchive")
         mock_snap.get.assert_called_once_with("deb.archive.server.gateway-port")
+
+
+class TestCharmActions:
+    def test_show_config_action(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that show-config returns redacted snap configuration."""
+        monkeypatch.setattr(
+            "charm.debarchive.get_config",
+            lambda: {"deb": {"archive": {"logging": {"level": "info"}}}},
+        )
+        harness = testing.Harness(DebarchiveOperatorCharm)
+        harness.begin()
+        try:
+            output = harness.run_action("show-config")
+
+            assert output.results == {"deb": {"archive": {"logging": {"level": "info"}}}}
+        finally:
+            harness.cleanup()
+
+    def test_show_config_action_failure(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that show-config reports snap failures."""
+        monkeypatch.setattr(
+            "charm.debarchive.get_config",
+            MagicMock(side_effect=snap.SnapError("snapd unavailable")),
+        )
+        harness = testing.Harness(DebarchiveOperatorCharm)
+        harness.begin()
+        try:
+            with pytest.raises(
+                testing.ActionFailed, match="Failed to read debarchive configuration"
+            ):
+                harness.run_action("show-config")
+        finally:
+            harness.cleanup()
+
+    def test_check_health_action(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that check-health returns health information."""
+        monkeypatch.setattr(
+            "charm.debarchive.check_health",
+            lambda: {"installed": True, "healthy": True, "message": "ok"},
+        )
+        harness = testing.Harness(DebarchiveOperatorCharm)
+        harness.begin()
+        try:
+            output = harness.run_action("check-health")
+
+            assert output.results == {"installed": True, "healthy": True, "message": "ok"}
+        finally:
+            harness.cleanup()
+
+    def test_check_health_action_fails_when_unhealthy(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that check-health fails the action when debarchive is unhealthy."""
+        monkeypatch.setattr(
+            "charm.debarchive.check_health",
+            lambda: {"installed": True, "healthy": False, "message": "inactive services: api"},
+        )
+        harness = testing.Harness(DebarchiveOperatorCharm)
+        harness.begin()
+        try:
+            with pytest.raises(testing.ActionFailed, match="inactive services: api"):
+                harness.run_action("check-health")
+        finally:
+            harness.cleanup()
+
+    def test_check_health_action_failure(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that check-health reports snap failures."""
+        monkeypatch.setattr(
+            "charm.debarchive.check_health",
+            MagicMock(side_effect=snap.SnapError("snapd unavailable")),
+        )
+        harness = testing.Harness(DebarchiveOperatorCharm)
+        harness.begin()
+        try:
+            with pytest.raises(testing.ActionFailed, match="Failed to check debarchive health"):
+                harness.run_action("check-health")
+        finally:
+            harness.cleanup()
+
+    def test_show_version_action(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that show-version returns snap version information."""
+        monkeypatch.setattr(
+            "charm.debarchive.get_version_info",
+            lambda: {"installed": True, "revision": "42", "version": "1.2.3", "channel": "beta"},
+        )
+        harness = testing.Harness(DebarchiveOperatorCharm)
+        harness.begin()
+        try:
+            output = harness.run_action("show-version")
+
+            assert output.results == {
+                "installed": True,
+                "revision": "42",
+                "version": "1.2.3",
+                "channel": "beta",
+            }
+        finally:
+            harness.cleanup()
+
+    def test_show_version_action_failure(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that show-version reports snap failures."""
+        monkeypatch.setattr(
+            "charm.debarchive.get_version_info",
+            MagicMock(side_effect=snap.SnapError("snapd unavailable")),
+        )
+        harness = testing.Harness(DebarchiveOperatorCharm)
+        harness.begin()
+        try:
+            with pytest.raises(testing.ActionFailed, match="Failed to read debarchive version"):
+                harness.run_action("show-version")
+        finally:
+            harness.cleanup()
+
+    def test_restart_snap_action(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that restart-snap restarts debarchive."""
+        restart = MagicMock()
+        monkeypatch.setattr("charm.debarchive.restart", restart)
+        harness = testing.Harness(DebarchiveOperatorCharm)
+        harness.begin()
+        try:
+            output = harness.run_action("restart-snap")
+
+            restart.assert_called_once_with()
+            assert output.results == {"restarted": True}
+        finally:
+            harness.cleanup()
+
+    def test_restart_snap_action_failure(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that restart-snap reports snap failures."""
+        monkeypatch.setattr(
+            "charm.debarchive.restart", MagicMock(side_effect=snap.SnapError("snapd unavailable"))
+        )
+        harness = testing.Harness(DebarchiveOperatorCharm)
+        harness.begin()
+        try:
+            with pytest.raises(testing.ActionFailed, match="Failed to restart debarchive snap"):
+                harness.run_action("restart-snap")
+        finally:
+            harness.cleanup()
 
 
 class TestDatabaseRelation:

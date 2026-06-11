@@ -40,7 +40,25 @@ requires:
 
 config:
   options:
-    server-port:
+    gateway-port:
       default: 8100
       type: int
-      description: The port debarchive server will listen on.
+      description: The debarchive server gateway port.
+    log-level:
+      default: info
+      type: string
+      description: Log level for debarchive. Valid options are debug, warn, error, info, trace, fatal.
+    log-human-readable:
+      default: false
+      type: boolean
+      description: Enable human-readable debarchive logging output.
+
+actions:
+  show-config:
+    description: Show redacted debarchive snap configuration managed by the charm.
+  check-health:
+    description: Check whether the debarchive snap is installed and its services are active.
+  show-version:
+    description: Show the installed debarchive snap version information.
+  restart-snap:
+    description: Restart the debarchive snap services.
