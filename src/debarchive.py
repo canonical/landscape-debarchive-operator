@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 DEBARCHIVE_SNAP_NAME = "landscape-debarchive"
 SNAPS_TO_INSTALL = [(DEBARCHIVE_SNAP_NAME, {"channel": "beta"})]
-LOG_LEVELS = frozenset({"debug", "warn", "error", "info", "trace", "fatal"})
+LOG_LEVELS = ("debug", "warn", "error", "info", "trace", "fatal")
 SENSITIVE_CONFIG_FIELDS = frozenset({"password", "secret"})
 
 
@@ -70,7 +70,7 @@ def configure(gateway_port: int, log_level: str, log_human_readable: bool) -> No
     """Set debarchive application parameters in the snap configuration."""
     normalized_level = log_level.lower()
     if normalized_level not in LOG_LEVELS:
-        raise ValueError(f"unsupported log level: {log_level}")
+        raise ValueError(f"Invalid log-level; expected {', '.join(LOG_LEVELS)}")
 
     debarchive_snap = snap.SnapCache()[DEBARCHIVE_SNAP_NAME]
     if not debarchive_snap.present:

@@ -104,10 +104,8 @@ class DebarchiveOperatorCharm(ops.CharmBase):
 
         try:
             debarchive.configure(gateway_port, log_level, log_human_readable)
-        except ValueError:
-            self.unit.status = ops.BlockedStatus(
-                "Invalid log-level; expected debug, warn, error, info, trace, or fatal"
-            )
+        except ValueError as e:
+            self.unit.status = ops.BlockedStatus(str(e))
             return
         except (snap.SnapError, snap.SnapNotFoundError):
             self.unit.status = ops.BlockedStatus("Failed to apply configuration")

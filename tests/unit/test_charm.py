@@ -184,7 +184,26 @@ class TestCharmConfigChanged:
         state_out = ctx.run(ctx.on.config_changed(), state_in)
 
         assert state_out.unit_status == testing.BlockedStatus(
-            "Invalid log-level; expected debug, warn, error, info, trace, or fatal"
+            f"Invalid log-level; expected {', '.join(debarchive.LOG_LEVELS)}"
+        )
+
+    def test_config_changed_uses_value_error_message(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that config validation failures report their own error messages."""
+        ctx = testing.Context(DebarchiveOperatorCharm)
+
+        monkeypatch.setattr(
+            debarchive,
+            "configure",
+            MagicMock(side_effect=ValueError("gateway-port must be greater than zero")),
+        )
+
+        state_in = testing.State(
+            config={"gateway-port": 0, "log-level": "info", "log-human-readable": False}
+        )
+        state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+        assert state_out.unit_status == testing.BlockedStatus(
+            "gateway-port must be greater than zero"
         )
 
     def test_config_changed_snap_not_present(self, monkeypatch: pytest.MonkeyPatch):
@@ -532,7 +551,7 @@ class TestDebarchiveConfig:
 
     def test_configure_rejects_invalid_log_level(self):
         """Test that configure rejects unsupported log levels."""
-        with pytest.raises(ValueError, match="unsupported log level: verbose"):
+        with pytest.raises(ValueError, match="Invalid log-level"):
             debarchive.configure(8100, "verbose", False)
 
     def test_set_secret_token(self, monkeypatch: pytest.MonkeyPatch):
