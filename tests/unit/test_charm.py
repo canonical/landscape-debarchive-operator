@@ -552,6 +552,42 @@ class TestDebarchiveConfig:
         )
         mock_snap.restart.assert_not_called()
 
+    def test_configure_skips_unchanged_config(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that configure does not write snap keys that already match."""
+        mock_snap = MagicMock()
+        mock_snap.present = True
+        mock_snap.get.side_effect = {
+            "deb.archive.server.gateway-port": "8101",
+            "deb.archive.logging.level": "error",
+            "deb.archive.logging.human-readable": True,
+        }.__getitem__
+        mock_cache = MagicMock()
+        mock_cache.__getitem__.return_value = mock_snap
+        monkeypatch.setattr("debarchive.snap.SnapCache", lambda: mock_cache)
+
+        debarchive.configure(8101, "ERROR", True)
+
+        mock_snap.set.assert_not_called()
+        mock_snap.restart.assert_not_called()
+
+    def test_configure_sets_only_changed_config(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that configure only writes snap keys whose values changed."""
+        mock_snap = MagicMock()
+        mock_snap.present = True
+        mock_snap.get.side_effect = {
+            "deb.archive.server.gateway-port": "8101",
+            "deb.archive.logging.level": "error",
+            "deb.archive.logging.human-readable": False,
+        }.__getitem__
+        mock_cache = MagicMock()
+        mock_cache.__getitem__.return_value = mock_snap
+        monkeypatch.setattr("debarchive.snap.SnapCache", lambda: mock_cache)
+
+        debarchive.configure(8101, "ERROR", True)
+
+        mock_snap.set.assert_called_once_with({"deb.archive.logging.human-readable": "true"})
+        mock_snap.restart.assert_not_called()
+
     def test_configure_rejects_invalid_log_level(self):
         """Test that configure rejects unsupported log levels."""
         with pytest.raises(ValueError, match="Invalid log-level"):
@@ -595,6 +631,20 @@ class TestDebarchiveConfig:
 
         mock_cache.__getitem__.assert_called_once_with("landscape-debarchive")
         mock_snap.set.assert_called_once_with({"deb.archive.server.host": "10.1.2.3"})
+        mock_snap.restart.assert_not_called()
+
+    def test_set_host_skips_unchanged_config(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that set_host does not write the host when it already matches."""
+        mock_snap = MagicMock()
+        mock_snap.get.return_value = "10.1.2.3"
+        mock_cache = MagicMock()
+        mock_cache.__getitem__.return_value = mock_snap
+        monkeypatch.setattr("debarchive.snap.SnapCache", lambda: mock_cache)
+
+        debarchive.set_host("10.1.2.3")
+
+        mock_cache.__getitem__.assert_called_once_with("landscape-debarchive")
+        mock_snap.set.assert_not_called()
         mock_snap.restart.assert_not_called()
 
     def test_get_port(self, monkeypatch: pytest.MonkeyPatch):

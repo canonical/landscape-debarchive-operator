@@ -54,7 +54,8 @@ def configure_database(
 ) -> None:
     """Set the database connection parameters in the snap configuration."""
     debarchive_snap = snap.SnapCache()[DEBARCHIVE_SNAP_NAME]
-    debarchive_snap.set(
+    _set_snap_config_if_changed(
+        debarchive_snap,
         {
             "deb.archive.database.host": host,
             "deb.archive.database.port": port,
@@ -63,7 +64,7 @@ def configure_database(
             "deb.archive.database.name": database,
             "deb.archive.database.ssl": ssl,
             "deb.archive.database.driver": "pgx",
-        }
+        },
     )
 
 
@@ -77,12 +78,13 @@ def configure(gateway_port: int, log_level: str, log_human_readable: bool) -> No
     if not debarchive_snap.present:
         return
 
-    debarchive_snap.set(
+    _set_snap_config_if_changed(
+        debarchive_snap,
         {
             "deb.archive.server.gateway-port": str(gateway_port),
             "deb.archive.logging.level": normalized_level,
             "deb.archive.logging.human-readable": str(log_human_readable).lower(),
-        }
+        },
     )
 
 
@@ -131,6 +133,24 @@ def _redact_config(config: dict[str, Any]) -> dict[str, Any]:
     return redacted
 
 
+def _set_snap_config_if_changed(debarchive_snap, config: dict[str, str]) -> None:
+    """Set snap configuration keys that are not already set to the desired value."""
+    changed_config = {
+        key: desired_value
+        for key, desired_value in config.items()
+        if not _snap_config_matches(debarchive_snap.get(key), desired_value)
+    }
+    if changed_config:
+        debarchive_snap.set(changed_config)
+
+
+def _snap_config_matches(current_value: Any, desired_value: str) -> bool:
+    """Return whether a current snap config value matches its desired string value."""
+    if isinstance(current_value, bool):
+        return str(current_value).lower() == desired_value
+    return str(current_value) == desired_value
+
+
 def check_health() -> dict[str, bool | str]:
     """Check whether the debarchive snap is installed and its service is active."""
     debarchive_snap = snap.SnapCache()[DEBARCHIVE_SNAP_NAME]
@@ -165,10 +185,11 @@ def set_secret_token(content: dict[str, str]) -> None:
     secret_token = content["secret-token"]
     encoded_secret_token = base64.b64encode(secret_token.encode("utf-8")).decode("utf-8")
     debarchive_snap = snap.SnapCache()[DEBARCHIVE_SNAP_NAME]
-    debarchive_snap.set(
+    _set_snap_config_if_changed(
+        debarchive_snap,
         {
             "deb.archive.jwt.secret": encoded_secret_token,
-        }
+        },
     )
 
 
@@ -187,7 +208,7 @@ def set_pagination_secret() -> None:
 def set_host(host: str) -> None:
     """Set the host for the debarchive server."""
     debarchive_snap = snap.SnapCache()[DEBARCHIVE_SNAP_NAME]
-    debarchive_snap.set({"deb.archive.server.host": host})
+    _set_snap_config_if_changed(debarchive_snap, {"deb.archive.server.host": host})
 
 
 def get_port() -> int:
