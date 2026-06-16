@@ -424,10 +424,13 @@ class TestDebarchiveConfig:
         mock_snap.get.assert_not_called()
 
     def test_check_health_healthy(self, monkeypatch: pytest.MonkeyPatch):
-        """Test that check_health reports healthy when all services are active."""
+        """Test that check_health reports healthy when the debarchive service is active."""
         mock_snap = MagicMock()
         mock_snap.present = True
-        mock_snap.services = {"daemon": {"active": True}}
+        mock_snap.services = {
+            "debarchive": {"active": True},
+            "worker": {"active": False},
+        }
         mock_cache = MagicMock()
         mock_cache.__getitem__.return_value = mock_snap
         monkeypatch.setattr("debarchive.snap.SnapCache", lambda: mock_cache)
@@ -435,15 +438,15 @@ class TestDebarchiveConfig:
         assert debarchive.check_health() == {
             "installed": True,
             "healthy": True,
-            "message": "debarchive snap services are active",
+            "message": "debarchive snap service is active",
         }
 
     def test_check_health_inactive_service(self, monkeypatch: pytest.MonkeyPatch):
-        """Test that check_health reports inactive services."""
+        """Test that check_health reports an inactive debarchive service."""
         mock_snap = MagicMock()
         mock_snap.present = True
         mock_snap.services = {
-            "api": {"active": False},
+            "debarchive": {"active": False},
             "worker": {"active": True},
         }
         mock_cache = MagicMock()
@@ -453,7 +456,7 @@ class TestDebarchiveConfig:
         assert debarchive.check_health() == {
             "installed": True,
             "healthy": False,
-            "message": "inactive services: api",
+            "message": "debarchive snap service is not active",
         }
 
     def test_check_health_snap_not_present(self, monkeypatch: pytest.MonkeyPatch):
@@ -471,10 +474,10 @@ class TestDebarchiveConfig:
         }
 
     def test_check_health_no_services(self, monkeypatch: pytest.MonkeyPatch):
-        """Test that check_health reports when snap services are absent."""
+        """Test that check_health reports when the debarchive service is absent."""
         mock_snap = MagicMock()
         mock_snap.present = True
-        mock_snap.services = {}
+        mock_snap.services = {"worker": {"active": True}}
         mock_cache = MagicMock()
         mock_cache.__getitem__.return_value = mock_snap
         monkeypatch.setattr("debarchive.snap.SnapCache", lambda: mock_cache)
@@ -482,7 +485,7 @@ class TestDebarchiveConfig:
         assert debarchive.check_health() == {
             "installed": True,
             "healthy": False,
-            "message": "debarchive snap has no services",
+            "message": "debarchive snap has no debarchive service",
         }
 
     def test_restart(self, monkeypatch: pytest.MonkeyPatch):
@@ -658,12 +661,18 @@ class TestCharmActions:
         """Test that check-health fails the action when debarchive is unhealthy."""
         monkeypatch.setattr(
             "charm.debarchive.check_health",
-            lambda: {"installed": True, "healthy": False, "message": "inactive services: api"},
+            lambda: {
+                "installed": True,
+                "healthy": False,
+                "message": "debarchive snap service is not active",
+            },
         )
         harness = testing.Harness(DebarchiveOperatorCharm)
         harness.begin()
         try:
-            with pytest.raises(testing.ActionFailed, match="inactive services: api"):
+            with pytest.raises(
+                testing.ActionFailed, match="debarchive snap service is not active"
+            ):
                 harness.run_action("check-health")
         finally:
             harness.cleanup()

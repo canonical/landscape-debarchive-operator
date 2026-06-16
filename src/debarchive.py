@@ -13,6 +13,7 @@ from charmlibs import snap
 logger = logging.getLogger(__name__)
 
 DEBARCHIVE_SNAP_NAME = "landscape-debarchive"
+DEBARCHIVE_SERVICE_NAME = "debarchive"
 SNAPS_TO_INSTALL = [(DEBARCHIVE_SNAP_NAME, {"channel": "beta"})]
 LOG_LEVELS = ("debug", "warn", "error", "info", "trace", "fatal")
 SENSITIVE_CONFIG_FIELDS = frozenset({"password", "secret"})
@@ -131,26 +132,22 @@ def _redact_config(config: dict[str, Any]) -> dict[str, Any]:
 
 
 def check_health() -> dict[str, bool | str]:
-    """Check whether the debarchive snap is installed and its services are active."""
+    """Check whether the debarchive snap is installed and its service is active."""
     debarchive_snap = snap.SnapCache()[DEBARCHIVE_SNAP_NAME]
     installed = debarchive_snap.present
     services = debarchive_snap.services if installed else {}
-    services_active = (
-        all(service["active"] for service in services.values()) if services else False
-    )
-    healthy = installed and services_active
+    debarchive_service = services.get(DEBARCHIVE_SERVICE_NAME)
+    service_active = bool(debarchive_service and debarchive_service["active"])
+    healthy = installed and service_active
 
     if not installed:
         message = "debarchive snap is not installed"
-    elif not services:
-        message = "debarchive snap has no services"
-    elif not services_active:
-        inactive_services = sorted(
-            service_name for service_name, service in services.items() if not service["active"]
-        )
-        message = f"inactive services: {', '.join(inactive_services)}"
+    elif debarchive_service is None:
+        message = "debarchive snap has no debarchive service"
+    elif not service_active:
+        message = "debarchive snap service is not active"
     else:
-        message = "debarchive snap services are active"
+        message = "debarchive snap service is active"
 
     return {"installed": installed, "healthy": healthy, "message": message}
 
