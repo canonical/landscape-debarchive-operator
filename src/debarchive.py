@@ -133,7 +133,7 @@ def _redact_config(config: dict[str, Any]) -> dict[str, Any]:
     return redacted
 
 
-def _set_snap_config_if_changed(debarchive_snap, config: dict[str, str]) -> None:
+def _set_snap_config_if_changed(debarchive_snap: snap.Snap, config: dict[str, str]) -> None:
     """Set snap configuration keys that are not already set to the desired value."""
     changed_config = {
         key: desired_value
