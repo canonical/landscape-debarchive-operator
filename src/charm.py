@@ -40,6 +40,7 @@ class DebarchiveOperatorCharm(ops.CharmBase):
 
         framework.observe(self.on.install, self._on_install)
         framework.observe(self.on.start, self._on_start)
+        framework.observe(self.on.upgrade_charm, self._on_upgrade_charm)
         framework.observe(self.on.config_changed, self._on_config_changed)
         framework.observe(self.on.show_config_action, self._on_show_config_action)
         framework.observe(self.on.check_health_action, self._on_check_health_action)
@@ -84,6 +85,21 @@ class DebarchiveOperatorCharm(ops.CharmBase):
     def _on_install(self, event: ops.InstallEvent):
         """Install the workload on the machine."""
         debarchive.install()
+
+    def _on_upgrade_charm(self, event: ops.UpgradeCharmEvent) -> None:
+        """Refresh the snap to the revision pinned by the charm on charm upgrade."""
+        self.unit.status = ops.MaintenanceStatus("refreshing workload snap")
+        try:
+            debarchive.refresh()
+        except (snap.SnapError, snap.SnapNotFoundError):
+            logger.exception("failed to refresh debarchive snap")
+            self.unit.status = ops.BlockedStatus("Failed to refresh debarchive snap")
+            return
+
+        version = debarchive.get_version()
+        if version is not None:
+            self.unit.set_workload_version(version)
+        self.unit.status = ops.ActiveStatus()
 
     def _on_start(self, event: ops.StartEvent):
         """Handle start event."""
