@@ -21,12 +21,17 @@ class TestCharmInstallAndStartup:
         mock_cache.__getitem__.return_value = mock_snap
 
         monkeypatch.setattr("debarchive.snap.SnapCache", lambda: mock_cache)
+        monkeypatch.setattr(
+            debarchive,
+            "SNAPS_TO_INSTALL",
+            [(debarchive.DEBARCHIVE_SNAP_NAME, {"channel": "edge", "revision": "258"})],
+        )
 
         state_in = testing.State()
         _ = ctx.run(ctx.on.install(), state_in)
 
         mock_snap.ensure.assert_called_once_with(
-            snap.SnapState.Latest, channel="edge", revision="256"
+            snap.SnapState.Latest, channel="edge", revision="258"
         )
         # The snap is pinned to a specific revision, so it is held after install.
         mock_snap.hold.assert_called_once_with()
@@ -273,6 +278,51 @@ class TestCharmConfigChanged:
         mock_snap.set.assert_not_called()
         mock_snap.restart.assert_not_called()
         assert state_out.unit_status == testing.ActiveStatus()
+
+
+class TestDebarchiveArchitecture:
+    @pytest.mark.parametrize(
+        ("machine", "expected"),
+        [
+            ("x86_64", "amd64"),
+            ("amd64", "amd64"),
+            ("AMD64", "amd64"),
+            ("aarch64", "arm64"),
+            ("arm64", "arm64"),
+        ],
+    )
+    def test_get_architecture(self, monkeypatch: pytest.MonkeyPatch, machine: str, expected: str):
+        """Test that supported machine names are normalized to snap architectures."""
+        monkeypatch.setattr("debarchive.platform.machine", lambda: machine)
+
+        assert debarchive.get_architecture() == expected
+
+    def test_get_architecture_unsupported(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that an unsupported architecture raises a ValueError."""
+        monkeypatch.setattr("debarchive.platform.machine", lambda: "riscv64")
+
+        with pytest.raises(ValueError, match="Unsupported architecture: riscv64"):
+            debarchive.get_architecture()
+
+    @pytest.mark.parametrize(
+        ("machine", "expected_revision"),
+        [
+            ("x86_64", "258"),
+            ("aarch64", "259"),
+        ],
+    )
+    def test_snaps_to_install_uses_architecture_revision(
+        self, monkeypatch: pytest.MonkeyPatch, machine: str, expected_revision: str
+    ):
+        """Test that the snap revision is selected based on the architecture."""
+        monkeypatch.setattr("debarchive.platform.machine", lambda: machine)
+
+        assert debarchive._snaps_to_install() == [
+            (
+                debarchive.DEBARCHIVE_SNAP_NAME,
+                {"channel": debarchive.DEBARCHIVE_SNAP_CHANNEL, "revision": expected_revision},
+            )
+        ]
 
 
 class TestDebarchiveInstall:

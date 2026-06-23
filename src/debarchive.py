@@ -5,6 +5,7 @@ The intention is that this module could be used outside the context of a charm.
 
 import base64
 import logging
+import platform
 import secrets
 from typing import Any
 
@@ -14,9 +15,39 @@ logger = logging.getLogger(__name__)
 
 DEBARCHIVE_SNAP_NAME = "landscape-debarchive"
 DEBARCHIVE_SERVICE_NAME = "debarchive"
-SNAPS_TO_INSTALL = [(DEBARCHIVE_SNAP_NAME, {"channel": "edge", "revision": "256"})]
+DEBARCHIVE_SNAP_CHANNEL = "edge"
+# The snap is built per architecture, so each architecture has its own revision.
+DEBARCHIVE_SNAP_REVISIONS = {
+    "amd64": "258",
+    "arm64": "259",
+}
+# Map the values reported by platform.machine() to Juju/snap architecture names.
+_ARCHITECTURE_ALIASES = {
+    "x86_64": "amd64",
+    "amd64": "amd64",
+    "aarch64": "arm64",
+    "arm64": "arm64",
+}
 LOG_LEVELS = ("debug", "warn", "error", "info", "trace", "fatal")
 SENSITIVE_CONFIG_FIELDS = frozenset({"password", "secret"})
+
+
+def get_architecture() -> str:
+    """Return the normalized architecture name (e.g. amd64 or arm64)."""
+    machine = platform.machine().lower()
+    architecture = _ARCHITECTURE_ALIASES.get(machine)
+    if architecture is None:
+        raise ValueError(f"Unsupported architecture: {machine}")
+    return architecture
+
+
+def _snaps_to_install() -> list[tuple[str, dict[str, str]]]:
+    """Build the list of snaps to install, pinned to this architecture's revision."""
+    revision = DEBARCHIVE_SNAP_REVISIONS[get_architecture()]
+    return [(DEBARCHIVE_SNAP_NAME, {"channel": DEBARCHIVE_SNAP_CHANNEL, "revision": revision})]
+
+
+SNAPS_TO_INSTALL = _snaps_to_install()
 
 
 def install() -> None:
