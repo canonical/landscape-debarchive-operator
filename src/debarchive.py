@@ -75,8 +75,9 @@ def start() -> None:
 def _install_snap_packages(refresh: bool = False) -> None:
     """Install (or refresh) snaps required for debarchive.
 
-    When `refresh` is True, snaps that are already present are ensured to the
-    pinned revision so that holds are re-applied after moving to a new revision.
+    When `refresh` is True, snaps that are already present are ensured to be at
+    the pinned revision so that holds are re-applied after moving to a new
+    revision.
     """
     for snap_name, snap_version in SNAPS_TO_INSTALL:
         try:
