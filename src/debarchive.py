@@ -50,7 +50,9 @@ def _install_snap_packages(refresh: bool = False) -> None:
             snap_cache = snap.SnapCache()
             snap_package = snap_cache[snap_name]
 
-            if not snap_package.present or refresh:
+            if ("channel" in snap_version or "revision" in snap_version) and (
+                not snap_package.present or refresh
+            ):
                 if refresh and snap_package.held:
                     snap_package.unhold()
                 snap_package.ensure(

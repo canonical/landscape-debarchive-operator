@@ -25,7 +25,11 @@ class TestCharmInstallAndStartup:
         state_in = testing.State()
         _ = ctx.run(ctx.on.install(), state_in)
 
-        mock_snap.ensure.assert_called_once_with(snap.SnapState.Latest, channel="beta")
+        mock_snap.ensure.assert_called_once_with(
+            snap.SnapState.Latest, channel="edge", revision="256"
+        )
+        # The snap is pinned to a specific revision, so it is held after install.
+        mock_snap.hold.assert_called_once_with()
 
         # install() sets a generated pagination secret. The host is refreshed
         # when haproxy route requirements are provided.
@@ -69,6 +73,50 @@ class TestCharmInstallAndStartup:
         assert state_out.unit_status == testing.ActiveStatus()
 
         assert not state_out.opened_ports
+
+
+class TestCharmUpgrade:
+    def test_upgrade_charm_refreshes_snap(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that the upgrade-charm hook refreshes the snap and updates the version."""
+        ctx = testing.Context(DebarchiveOperatorCharm)
+
+        refresh = MagicMock()
+        monkeypatch.setattr("charm.debarchive.refresh", refresh)
+        monkeypatch.setattr("charm.debarchive.get_version", lambda: "256")
+
+        state_in = testing.State()
+        state_out = ctx.run(ctx.on.upgrade_charm(), state_in)
+
+        refresh.assert_called_once_with()
+        assert state_out.workload_version == "256"
+        assert state_out.unit_status == testing.ActiveStatus()
+
+    def test_upgrade_charm_no_version(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that the upgrade-charm hook handles a missing version gracefully."""
+        ctx = testing.Context(DebarchiveOperatorCharm)
+
+        monkeypatch.setattr("charm.debarchive.refresh", MagicMock())
+        monkeypatch.setattr("charm.debarchive.get_version", lambda: None)
+
+        state_in = testing.State()
+        state_out = ctx.run(ctx.on.upgrade_charm(), state_in)
+
+        assert state_out.workload_version == ""
+        assert state_out.unit_status == testing.ActiveStatus()
+
+    def test_upgrade_charm_snap_error_blocks(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that a SnapError during upgrade-charm puts the unit into BlockedStatus."""
+        ctx = testing.Context(DebarchiveOperatorCharm)
+
+        monkeypatch.setattr(
+            "charm.debarchive.refresh",
+            MagicMock(side_effect=snap.SnapError("Simulated failure")),
+        )
+
+        state_in = testing.State()
+        state_out = ctx.run(ctx.on.upgrade_charm(), state_in)
+
+        assert state_out.unit_status == testing.BlockedStatus("Failed to refresh debarchive snap")
 
 
 class TestCharmConfigChanged:
@@ -244,7 +292,7 @@ class TestDebarchiveInstall:
                 self.ensured = False
                 self.set_called = {}
 
-            def ensure(self, state, channel=None):
+            def ensure(self, state, channel=None, revision=None):
                 self.ensured = True
 
             def set(self, config):
@@ -279,7 +327,7 @@ class TestDebarchiveInstall:
                 self.ensure_called = False
                 self.set_called = False
 
-            def ensure(self, state, channel=None):
+            def ensure(self, state, channel=None, revision=None):
                 self.ensure_called = True
 
             def set(self, config):
@@ -323,6 +371,94 @@ class TestDebarchiveInstall:
 
         with pytest.raises(snap.SnapError):
             debarchive.install()
+
+
+class TestDebarchiveRefresh:
+    def test_refresh_unholds_ensures_and_holds_pinned_snap(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Test that refresh unholds, refreshes to the pinned revision, then re-holds."""
+        monkeypatch.setattr(
+            debarchive,
+            "SNAPS_TO_INSTALL",
+            [("landscape-debarchive", {"channel": "beta", "revision": "256"})],
+        )
+
+        mock_snap = MagicMock()
+        mock_snap.present = True
+        mock_snap.held = True
+
+        mock_cache = MagicMock()
+        mock_cache.__getitem__.return_value = mock_snap
+        monkeypatch.setattr("debarchive.snap.SnapCache", lambda: mock_cache)
+
+        debarchive.refresh()
+
+        mock_snap.unhold.assert_called_once_with()
+        mock_snap.ensure.assert_called_once_with(
+            snap.SnapState.Latest, channel="beta", revision="256"
+        )
+        mock_snap.hold.assert_called_once_with()
+
+    def test_refresh_skips_unhold_when_not_held(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that refresh does not unhold a snap that is not currently held."""
+        monkeypatch.setattr(
+            debarchive,
+            "SNAPS_TO_INSTALL",
+            [("landscape-debarchive", {"channel": "beta", "revision": "256"})],
+        )
+
+        mock_snap = MagicMock()
+        mock_snap.present = True
+        mock_snap.held = False
+
+        mock_cache = MagicMock()
+        mock_cache.__getitem__.return_value = mock_snap
+        monkeypatch.setattr("debarchive.snap.SnapCache", lambda: mock_cache)
+
+        debarchive.refresh()
+
+        mock_snap.unhold.assert_not_called()
+        mock_snap.ensure.assert_called_once_with(
+            snap.SnapState.Latest, channel="beta", revision="256"
+        )
+        mock_snap.hold.assert_called_once_with()
+
+    def test_refresh_ensures_even_when_present(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that refresh re-ensures a snap that is already installed."""
+        monkeypatch.setattr(
+            debarchive,
+            "SNAPS_TO_INSTALL",
+            [("landscape-debarchive", {"channel": "beta", "revision": "256"})],
+        )
+
+        mock_snap = MagicMock()
+        mock_snap.present = True
+        mock_snap.held = False
+
+        mock_cache = MagicMock()
+        mock_cache.__getitem__.return_value = mock_snap
+        monkeypatch.setattr("debarchive.snap.SnapCache", lambda: mock_cache)
+
+        debarchive.refresh()
+
+        mock_snap.ensure.assert_called_once()
+
+    def test_refresh_error_path(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that refresh propagates snap errors."""
+        monkeypatch.setattr(
+            debarchive,
+            "SNAPS_TO_INSTALL",
+            [("landscape-debarchive", {"channel": "beta", "revision": "256"})],
+        )
+
+        mock_cache = MagicMock()
+        mock_cache.__getitem__.side_effect = snap.SnapError("Simulated Failure")
+        monkeypatch.setattr("debarchive.snap.SnapCache", lambda: mock_cache)
+        monkeypatch.setattr(debarchive, "logger", MagicMock())
+
+        with pytest.raises(snap.SnapError):
+            debarchive.refresh()
 
 
 class TestDebarchiveConfig:
