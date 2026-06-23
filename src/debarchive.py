@@ -13,20 +13,22 @@ from charmlibs import snap
 
 logger = logging.getLogger(__name__)
 
+AMD64 = "amd64"
+ARM64 = "arm64"
 DEBARCHIVE_SNAP_NAME = "landscape-debarchive"
 DEBARCHIVE_SERVICE_NAME = "debarchive"
 DEBARCHIVE_SNAP_CHANNEL = "edge"
 # The snap is built per architecture, so each architecture has its own revision.
 DEBARCHIVE_SNAP_REVISIONS = {
-    "amd64": "258",
-    "arm64": "259",
+    AMD64: "258",
+    ARM64: "259",
 }
 # Map the values reported by platform.machine() to Juju/snap architecture names.
 _ARCHITECTURE_ALIASES = {
-    "x86_64": "amd64",
-    "amd64": "amd64",
-    "aarch64": "arm64",
-    "arm64": "arm64",
+    "x86_64": AMD64,
+    "amd64": AMD64,
+    "aarch64": ARM64,
+    "arm64": ARM64,
 }
 LOG_LEVELS = ("debug", "warn", "error", "info", "trace", "fatal")
 SENSITIVE_CONFIG_FIELDS = frozenset({"password", "secret"})
