@@ -424,9 +424,7 @@ class TestDebarchiveInstall:
 
 
 class TestDebarchiveRefresh:
-    def test_refresh_unholds_ensures_and_holds_pinned_snap(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_refresh_unholds_ensures_and_holds_pinned_snap(self, monkeypatch: pytest.MonkeyPatch):
         """Test that refresh unholds, refreshes to the pinned revision, then re-holds."""
         monkeypatch.setattr(
             debarchive,
