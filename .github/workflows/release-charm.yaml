@@ -1,0 +1,108 @@
+# Copyright 2026 Canonical Ltd.
+# See LICENSE file for licensing details.
+#
+# Charm side of the snap-release-triggers-charm-release automation.
+#
+# This initial version reacts to a new snap revision by opening a pull request
+# that updates the per-architecture snap revisions pinned in src/debarchive.py.
+# Building and releasing the charm to the target channel will be added later.
+name: Release Charm
+
+on:
+  # Sent by the snap repository's dispatch-charm-release workflow when a new
+  # landscape-debarchive snap revision is released to a channel.
+  repository_dispatch:
+    types: [snap-released]
+  # Allows a release to be cut or re-cut manually.
+  workflow_dispatch:
+    inputs:
+      amd64-revision:
+        description: amd64 snap revision to pin.
+        required: true
+      arm64-revision:
+        description: arm64 snap revision to pin.
+        required: true
+      charm-channel:
+        description: Target charm channel (mirrors the snap channel).
+        required: true
+        default: latest/edge
+
+concurrency:
+  group: release-charm-${{ github.event.client_payload.revisions.amd64 || inputs['amd64-revision'] }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-snap-revisions:
+    name: Update pinned snap revisions
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Resolve revisions and target channel
+        id: resolve
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_AMD64: ${{ github.event.client_payload.revisions.amd64 }}
+          DISPATCH_ARM64: ${{ github.event.client_payload.revisions.arm64 }}
+          DISPATCH_CHANNEL: ${{ github.event.client_payload.channel }}
+          INPUT_AMD64: ${{ inputs['amd64-revision'] }}
+          INPUT_ARM64: ${{ inputs['arm64-revision'] }}
+          INPUT_CHANNEL: ${{ inputs['charm-channel'] }}
+        run: |
+          set -euo pipefail
+          if [ "${EVENT_NAME}" = "repository_dispatch" ]; then
+            amd64="${DISPATCH_AMD64}"
+            arm64="${DISPATCH_ARM64}"
+            channel="${DISPATCH_CHANNEL}"
+          else
+            amd64="${INPUT_AMD64}"
+            arm64="${INPUT_ARM64}"
+            channel="${INPUT_CHANNEL}"
+          fi
+          if [ -z "${channel}" ]; then
+            channel="latest/edge"
+          fi
+          {
+            echo "amd64=${amd64}"
+            echo "arm64=${arm64}"
+            echo "channel=${channel}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Update pinned snap revisions
+        env:
+          AMD64: ${{ steps.resolve.outputs.amd64 }}
+          ARM64: ${{ steps.resolve.outputs.arm64 }}
+        run: |
+          python3 .github/scripts/update_snap_revisions.py --amd64 "${AMD64}" --arm64 "${ARM64}"
+
+      - name: Create pull request
+        uses: peter-evans/create-pull-request@v8
+        with:
+          # A PAT (CHARM_PR_TOKEN) lets the resulting PR trigger lint/unit-test;
+          # the default GITHUB_TOKEN works but its PRs do not start other workflows.
+          token: ${{ secrets.CHARM_PR_TOKEN || secrets.GITHUB_TOKEN }}
+          base: main
+          branch: automation/snap-revisions-amd64-${{ steps.resolve.outputs.amd64 }}-arm64-${{ steps.resolve.outputs.arm64 }}
+          delete-branch: true
+          commit-message: "build: pin landscape-debarchive snap revisions (amd64 ${{ steps.resolve.outputs.amd64 }}, arm64 ${{ steps.resolve.outputs.arm64 }})"
+          title: "build: pin landscape-debarchive snap revisions (amd64 ${{ steps.resolve.outputs.amd64 }}, arm64 ${{ steps.resolve.outputs.arm64 }})"
+          body: |
+            Automated update of the pinned `landscape-debarchive` snap revisions.
+
+            | Architecture | Revision |
+            | --- | --- |
+            | amd64 | `${{ steps.resolve.outputs.amd64 }}` |
+            | arm64 | `${{ steps.resolve.outputs.arm64 }}` |
+
+            Target charm channel: `${{ steps.resolve.outputs.channel }}`
+
+            Triggered by `${{ github.event_name }}`. Merging this PR pins the charm to the
+            new snap revisions; releasing the charm to the target channel is a separate step.
+          labels: |
+            automated
+            snap-release
