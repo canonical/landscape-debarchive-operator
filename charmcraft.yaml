@@ -3,9 +3,25 @@ type: charm
 name: landscape-debarchive
 title: Debarchive Operator
 
-summary: Charm for installing and using debarchive with Landscape Server.
+summary: Install, configure and operate debarchive alongside Landscape Server.
 description: |
-  Charm used for managing debarchive along with Landscape Server.
+  The Debarchive Operator turns debarchive into a fully managed, deployable component of a Landscape Server environment.
+
+  It installs and upgrades the debarchive snap, manages its configuration, and connects it to a PostgreSQL database, an HAProxy front end, and Landscape Server. Once integrated, the charm keeps the debarchive service running and its settings consistent across the deployment.
+
+  Debarchive provides Debian repository mirroring through Landscape. This charm meets the need for that capability in Juju-managed environments, making repository mirroring available as an integrated part of a Landscape deployment.
+
+  It is useful for Landscape administrators and operators who deploy Landscape Server with Juju and want a supported, hands-off way to run debarchive as part of that stack.
+
+links:
+  documentation: https://charmhub.io/landscape-debarchive
+  source:
+    - https://github.com/canonical/landscape-debarchive-operator
+  issues:
+    - https://github.com/canonical/landscape-debarchive-operator/issues
+  website:
+    - https://ubuntu.com/landscape
+  contact: https://launchpad.net/~landscape
 
 charm-libs:
   - lib: data_platform_libs.data_interfaces
@@ -43,22 +59,46 @@ config:
     gateway-port:
       default: 8100
       type: int
-      description: The debarchive server gateway port.
+      description: |
+        TCP port on which the debarchive server gateway listens for incoming
+        requests. Change this if the default port conflicts with another
+        service on the same host. Defaults to 8100.
     log-level:
       default: info
       type: string
-      description: Log level for debarchive. Valid options are debug, warn, error, info, trace, fatal.
+      description: |
+        Verbosity of the debarchive logs. Higher verbosity levels are useful
+        for troubleshooting but produce more output.
+
+        Valid values (from most to least verbose): trace, debug, info, warn,
+        error, fatal. Defaults to info.
     log-human-readable:
       default: false
       type: boolean
-      description: Enable human-readable debarchive logging output.
+      description: |
+        When true, debarchive emits human-readable log output instead of the
+        default structured (machine-parsable) format. Enable this for easier
+        manual inspection of logs; leave disabled when forwarding logs to a
+        log aggregation system. Defaults to false.
 
 actions:
   show-config:
-    description: Show redacted debarchive snap configuration managed by the charm.
+    description: |
+      Display the debarchive snap configuration currently managed by the
+      charm. Sensitive values are redacted, so the output is safe to share
+      when reporting issues.
   check-health:
-    description: Check whether the debarchive snap is installed and its services are active.
+    description: |
+      Verify that the debarchive snap is installed and that its services are
+      active. Use this to confirm the unit is healthy after deployment,
+      configuration changes, or an upgrade.
   show-version:
-    description: Show the installed debarchive snap version information.
+    description: |
+      Report version information for the installed debarchive snap, including
+      the snap revision and channel. Useful when confirming an upgrade or
+      diagnosing version-specific behaviour.
   restart-snap:
-    description: Restart the debarchive snap services.
+    description: |
+      Restart the debarchive snap services. Use this to recover from a
+      transient fault or to force the service to re-read its runtime state.
+      Causes a brief service interruption while the services restart.
