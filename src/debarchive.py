@@ -4,9 +4,11 @@ The intention is that this module could be used outside the context of a charm.
 """
 
 import base64
+import json
 import logging
 import platform
 import secrets
+from pathlib import Path
 from typing import Any
 
 from charmlibs import snap
@@ -18,11 +20,18 @@ ARM64 = "arm64"
 DEBARCHIVE_SNAP_NAME = "landscape-debarchive"
 DEBARCHIVE_SERVICE_NAME = "debarchive"
 DEBARCHIVE_SNAP_CHANNEL = "edge"
+
+
+def _load_snap_revisions() -> dict[str, str]:
+    """Load snap revisions from the manifest file."""
+    manifest_path = Path(__file__).parent / "snap_revisions.json"
+    with manifest_path.open("r") as f:
+        manifest = json.load(f)
+    return manifest[DEBARCHIVE_SNAP_NAME]
+
+
 # The snap is built per architecture, so each architecture has its own revision.
-DEBARCHIVE_SNAP_REVISIONS = {
-    AMD64: "258",
-    ARM64: "259",
-}
+DEBARCHIVE_SNAP_REVISIONS = _load_snap_revisions()
 # Map the values reported by platform.machine() to Juju/snap architecture names.
 _ARCHITECTURE_ALIASES = {
     "x86_64": AMD64,
