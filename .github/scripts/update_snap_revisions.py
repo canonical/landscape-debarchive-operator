@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Copyright 2026 Canonical Ltd.
 # See LICENSE file for licensing details.
-"""Update the pinned `landscape-debarchive` snap revisions in `src/debarchive.py`.
+"""Update the pinned `landscape-debarchive` snap revisions in `src/snap_revisions.json`.
 
 Used by the charm release automation: when a new snap revision is released to a
 channel, the per-architecture revisions pinned by the charm are rewritten so a
@@ -14,38 +14,32 @@ never inject arbitrary content into the charm source.
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_TARGET = REPO_ROOT / "src" / "debarchive.py"
+DEFAULT_TARGET = REPO_ROOT / "src" / "snap_revisions.json"
+DEFAULT_SNAP = "landscape-debarchive"
 
-_BLOCK_PATTERN = re.compile(
-    r"(?P<prefix>DEBARCHIVE_SNAP_REVISIONS\s*=\s*\{)(?P<body>.*?)(?P<suffix>\})",
-    re.DOTALL,
-)
+AMD64 = "amd64"
+ARM64 = "arm64"
+
 _REVISION_PATTERN = re.compile(r"^[0-9]+$")
 
 
-def _replace_revision(body: str, key: str, revision: str) -> str:
-    """Replace the integer value for `key` within a revisions-map body."""
-    pattern = re.compile(rf'(?P<lead>\b{key}\s*:\s*")[0-9]+(?P<trail>")')
-    new_body, count = pattern.subn(rf"\g<lead>{revision}\g<trail>", body)
-    if count != 1:
-        raise ValueError(f"Expected exactly one {key!r} revision entry, found {count}.")
-    return new_body
-
-
-def update_source(source: str, amd64: str, arm64: str) -> str:
-    """Return `source` with the amd64/arm64 snap revisions replaced."""
-    match = _BLOCK_PATTERN.search(source)
-    if match is None:
-        raise ValueError("Could not find DEBARCHIVE_SNAP_REVISIONS block.")
-    body = match.group("body")
-    body = _replace_revision(body, "AMD64", amd64)
-    body = _replace_revision(body, "ARM64", arm64)
-    return source[: match.start("body")] + body + source[match.end("body") :]
+def update_manifest(manifest: dict, snap: str, amd64: str, arm64: str) -> dict:
+    """Return `manifest` with the amd64/arm64 snap revisions replaced for `snap`."""
+    if snap not in manifest:
+        raise ValueError(f"Could not find {snap!r} entry in the revisions manifest.")
+    revisions = manifest[snap]
+    for arch in (AMD64, ARM64):
+        if arch not in revisions:
+            raise ValueError(f"Could not find {arch!r} revision for {snap!r}.")
+    revisions[AMD64] = amd64
+    revisions[ARM64] = arm64
+    return manifest
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -54,10 +48,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--amd64", required=True, help="New amd64 snap revision.")
     parser.add_argument("--arm64", required=True, help="New arm64 snap revision.")
     parser.add_argument(
+        "--snap",
+        default=DEFAULT_SNAP,
+        help="Snap name whose revisions are updated (defaults to landscape-debarchive).",
+    )
+    parser.add_argument(
         "--file",
         type=Path,
         default=DEFAULT_TARGET,
-        help="Path to the source file (defaults to src/debarchive.py).",
+        help="Path to the manifest file (defaults to src/snap_revisions.json).",
     )
     args = parser.parse_args(argv)
 
@@ -65,9 +64,12 @@ def main(argv: list[str] | None = None) -> int:
         if not _REVISION_PATTERN.match(value):
             parser.error(f"--{name} must be a positive integer, got {value!r}.")
 
-    source = args.file.read_text(encoding="utf-8")
-    updated = update_source(source, args.amd64, args.arm64)
-    if updated != source:
+    original = args.file.read_text(encoding="utf-8")
+    manifest = json.loads(original)
+    manifest = update_manifest(manifest, args.snap, args.amd64, args.arm64)
+    updated = json.dumps(manifest, indent=2) + "\n"
+
+    if updated != original:
         args.file.write_text(updated, encoding="utf-8")
         print(f"Updated {args.file}: amd64={args.amd64}, arm64={args.arm64}.")
     else:

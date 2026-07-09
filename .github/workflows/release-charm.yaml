@@ -4,7 +4,7 @@
 # Charm side of the snap-release-triggers-charm-release automation.
 #
 # This initial version reacts to a new snap revision by opening a pull request
-# that updates the per-architecture snap revisions pinned in src/debarchive.py.
+# that updates the per-architecture snap revisions pinned in src/snap_revisions.json.
 # Building and releasing the charm to the target channel will be added later.
 name: Release Charm
 

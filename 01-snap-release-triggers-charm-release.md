@@ -30,7 +30,7 @@ On each snap release, a [`repository_dispatch`](https://docs.github.com/en/rest/
 The `Release Charm` workflow (`.github/workflows/release-charm.yaml`):
 
 - triggers on `repository_dispatch` with `types: [snap-released]`, and also exposes a `workflow_dispatch` with `amd64-revision`, `arm64-revision`, and `charm-channel` inputs so a release can be cut or re-cut manually;
-- writes the per-architecture revisions from the payload into the charm's hard-coded snap-revision pin - the `DEBARCHIVE_SNAP_REVISIONS` map in `src/debarchive.py` - via the `.github/scripts/update_snap_revisions.py` helper, which only accepts integer revisions so untrusted dispatch input cannot inject content into the charm source;
+- writes the per-architecture revisions from the payload into the charm's snap-revision manifest - the `landscape-debarchive` entry in `src/snap_revisions.json` (loaded at import time into the `DEBARCHIVE_SNAP_REVISIONS` map in `src/debarchive.py`) - via the `.github/scripts/update_snap_revisions.py` helper, which only accepts integer revisions so untrusted dispatch input cannot inject content into the charm source;
 - opens a pull request with that change (using `peter-evans/create-pull-request`) rather than committing to `main` directly, so the update lands through the repo's normal `lint`/`unit-test` review gate.
 
 This is the initial version: it stops at opening the PR. Building the charm with `charmcraft` and releasing it to the channel in `client_payload.channel` (the charm channel matching the snap channel) is a planned follow-up.
