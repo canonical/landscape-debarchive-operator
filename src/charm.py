@@ -134,13 +134,9 @@ class DebarchiveOperatorCharm(ops.CharmBase):
         self.unit.status = ops.ActiveStatus()
 
     def _set_ports(self) -> None:
-        """Declare the unit's open port, mirroring landscape-server's own pattern.
+        """Declare the API gateway port to the model.
 
-        Opens the gateway port haproxy actually connects to (see
-        ``debarchive.get_port()``), so the debarchive API is reachable
-        through haproxy without requiring an out-of-band
-        ``juju exec -- open-port``. Re-run on every config-changed so a
-        change to the ``gateway-port`` config option is reflected.
+        This makes it externally-accessible by, e.g., haproxy.
         """
         self.unit.set_ports(ops.Port("tcp", int(self.config["gateway-port"])))
 
