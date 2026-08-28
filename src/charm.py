@@ -108,6 +108,7 @@ class DebarchiveOperatorCharm(ops.CharmBase):
         version = debarchive.get_version()
         if version is not None:
             self.unit.set_workload_version(version)
+        self._set_ports()
         self.unit.status = ops.ActiveStatus()
 
     def _on_config_changed(self, event):
@@ -127,9 +128,21 @@ class DebarchiveOperatorCharm(ops.CharmBase):
             self.unit.status = ops.BlockedStatus("Failed to apply configuration")
             return
 
+        self._set_ports()
         self._provide_haproxy_route_requirements()
 
         self.unit.status = ops.ActiveStatus()
+
+    def _set_ports(self) -> None:
+        """Declare the unit's open port, mirroring landscape-server's own pattern.
+
+        Opens the gateway port haproxy actually connects to (see
+        ``debarchive.get_port()``), so the debarchive API is reachable
+        through haproxy without requiring an out-of-band
+        ``juju exec -- open-port``. Re-run on every config-changed so a
+        change to the ``gateway-port`` config option is reflected.
+        """
+        self.unit.set_ports(ops.Port("tcp", int(self.config["gateway-port"])))
 
     def _on_show_config_action(self, event: ops.ActionEvent) -> None:
         """Show redacted debarchive snap configuration."""
