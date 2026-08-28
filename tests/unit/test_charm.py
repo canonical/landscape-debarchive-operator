@@ -61,7 +61,8 @@ class TestCharmInstallAndStartup:
         assert state_out.workload_version == "1.0.0"
         assert state_out.unit_status == testing.ActiveStatus()
 
-        assert not state_out.opened_ports
+        opened_ports = {p.port for p in state_out.opened_ports}
+        assert opened_ports == {8100}  # the "gateway-port" config default
 
     def test_start_no_version(self, monkeypatch: pytest.MonkeyPatch):
         """Test that the start hook handles a missing version gracefully."""
@@ -77,7 +78,8 @@ class TestCharmInstallAndStartup:
 
         assert state_out.unit_status == testing.ActiveStatus()
 
-        assert not state_out.opened_ports
+        opened_ports = {p.port for p in state_out.opened_ports}
+        assert opened_ports == {8100}  # the "gateway-port" config default
 
 
 class TestCharmUpgrade:
@@ -157,8 +159,10 @@ class TestCharmConfigChanged:
         )
         mock_snap.restart.assert_not_called()
 
+        # set_ports replaces the previously-open port (8000) with the newly
+        # configured gateway-port (8080), matching what haproxy now connects to.
         opened_ports = {p.port for p in state_out.opened_ports}
-        assert opened_ports == {8000}
+        assert opened_ports == {8080}
 
         assert state_out.unit_status == testing.ActiveStatus()
 
@@ -205,7 +209,9 @@ class TestCharmConfigChanged:
         mock_snap.restart.assert_not_called()
 
         opened_ports = {p.port for p in state_out.opened_ports}
-        assert opened_ports == {8000}
+        # set_ports replaces the previously-open port (8000) with the
+        # newly configured gateway-port (8101).
+        assert opened_ports == {8101}
 
     def test_config_changed_snap_error_during_set(self, monkeypatch: pytest.MonkeyPatch):
         """Test simulating a failure while modifying the snap."""
