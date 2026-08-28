@@ -24,14 +24,14 @@ class TestCharmInstallAndStartup:
         monkeypatch.setattr(
             debarchive,
             "SNAPS_TO_INSTALL",
-            [(debarchive.DEBARCHIVE_SNAP_NAME, {"channel": "edge", "revision": "258"})],
+            [(debarchive.DEBARCHIVE_SNAP_NAME, {"channel": "stable", "revision": "341"})],
         )
 
         state_in = testing.State()
         _ = ctx.run(ctx.on.install(), state_in)
 
         mock_snap.ensure.assert_called_once_with(
-            snap.SnapState.Latest, channel="edge", revision="258"
+            snap.SnapState.Latest, channel="stable", revision="341"
         )
         # The snap is pinned to a specific revision, so it is held after install.
         mock_snap.hold.assert_called_once_with()
@@ -313,8 +313,8 @@ class TestDebarchiveArchitecture:
     @pytest.mark.parametrize(
         ("machine", "expected_revision"),
         [
-            ("x86_64", "258"),
-            ("aarch64", "259"),
+            ("x86_64", "341"),
+            ("aarch64", "340"),
         ],
     )
     def test_snaps_to_install_uses_architecture_revision(

@@ -50,7 +50,7 @@ def test_database_relation(juju):
 
 def test_haproxy_route_relation(juju):
     """Test that debarchive can be related to haproxy over the haproxy-route interface."""
-    juju.deploy(HAPROXY_APP, channel="2.8/edge")
+    juju.deploy(HAPROXY_APP, channel="2.8/stable")
     juju.integrate(
         f"{APP_NAME}:debarchive-haproxy-route",
         f"{HAPROXY_APP}:haproxy-route",

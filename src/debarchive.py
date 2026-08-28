@@ -19,7 +19,7 @@ AMD64 = "amd64"
 ARM64 = "arm64"
 DEBARCHIVE_SNAP_NAME = "landscape-debarchive"
 DEBARCHIVE_SERVICE_NAME = "debarchive"
-DEBARCHIVE_SNAP_CHANNEL = "edge"
+DEBARCHIVE_SNAP_CHANNEL = "stable"
 
 
 def _load_snap_revisions() -> dict[str, str]:
