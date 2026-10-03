@@ -1,3 +1,4 @@
+import dataclasses
 from unittest.mock import MagicMock
 
 import pytest
@@ -6,7 +7,7 @@ from ops import testing
 from ops.model import ModelError
 
 import debarchive
-from charm import DebarchiveOperatorCharm
+from charm import MULTIPLE_UNITS_MESSAGE, DebarchiveOperatorCharm
 
 
 class TestCharmInstallAndStartup:
@@ -80,6 +81,48 @@ class TestCharmInstallAndStartup:
 
         opened_ports = {p.port for p in state_out.opened_ports}
         assert opened_ports == {8100}  # the "gateway-port" config default
+
+
+class TestSingleUnitGuard:
+    @pytest.mark.parametrize("event_name", ["update_status", "start", "config_changed"])
+    def test_multiple_units_blocks(self, monkeypatch: pytest.MonkeyPatch, event_name: str):
+        """Test that scaling beyond one unit blocks the unit on any event."""
+        ctx = testing.Context(DebarchiveOperatorCharm)
+
+        monkeypatch.setattr("charm.debarchive.start", MagicMock())
+        monkeypatch.setattr("charm.debarchive.get_version", lambda: "1.0.0")
+        monkeypatch.setattr("charm.debarchive.configure", MagicMock())
+
+        state_in = testing.State(planned_units=2)
+        state_out = ctx.run(getattr(ctx.on, event_name)(), state_in)
+
+        assert state_out.unit_status == testing.BlockedStatus(MULTIPLE_UNITS_MESSAGE)
+
+    def test_single_unit_does_not_block(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that a single-unit deployment is not blocked by the guard."""
+        ctx = testing.Context(DebarchiveOperatorCharm)
+
+        monkeypatch.setattr("charm.debarchive.start", MagicMock())
+        monkeypatch.setattr("charm.debarchive.get_version", lambda: "1.0.0")
+
+        state_in = testing.State(planned_units=1)
+        state_out = ctx.run(ctx.on.start(), state_in)
+
+        assert state_out.unit_status == testing.ActiveStatus()
+
+    def test_status_reverts_after_scale_down(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that the block clears on the next hook once scaled back to one unit."""
+        ctx = testing.Context(DebarchiveOperatorCharm)
+
+        monkeypatch.setattr("charm.debarchive.start", MagicMock())
+        monkeypatch.setattr("charm.debarchive.get_version", lambda: "1.0.0")
+
+        blocked = ctx.run(ctx.on.start(), testing.State(planned_units=2))
+        assert blocked.unit_status == testing.BlockedStatus(MULTIPLE_UNITS_MESSAGE)
+
+        state_out = ctx.run(ctx.on.update_status(), dataclasses.replace(blocked, planned_units=1))
+
+        assert state_out.unit_status == testing.ActiveStatus()
 
 
 class TestCharmUpgrade:

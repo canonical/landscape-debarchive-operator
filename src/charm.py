@@ -22,6 +22,10 @@ logger = logging.getLogger(__name__)
 HAPROXY_ROUTE_RELATION = "debarchive-haproxy-route"
 DEBARCHIVE_ROUTE_PREFIX = "/debarchive"
 DEBARCHIVE_PATH_REWRITE = r"%[path,regsub(^/debarchive/?,/)]"
+MULTIPLE_UNITS_MESSAGE = (
+    "debarchive does not support multiple units; "
+    "remove extra units to unblock (juju remove-unit ...)"
+)
 
 
 class DebarchiveOperatorCharm(ops.CharmBase):
@@ -38,6 +42,7 @@ class DebarchiveOperatorCharm(ops.CharmBase):
             self, relation_name="database", database_name="debarchive"
         )
 
+        framework.observe(self.on.collect_unit_status, self._on_collect_unit_status)
         framework.observe(self.on.install, self._on_install)
         framework.observe(self.on.start, self._on_start)
         framework.observe(self.on.upgrade_charm, self._on_upgrade_charm)
@@ -81,6 +86,21 @@ class DebarchiveOperatorCharm(ops.CharmBase):
             return None
 
         return str(bind_address) if bind_address else None
+
+    def _on_collect_unit_status(self, event: ops.CollectStatusEvent) -> None:
+        """Block the unit while the application is scaled beyond a single unit.
+
+        debarchive has no HA support: packages live on the unit's filesystem and
+        units do not coordinate, so a multi-unit deployment is silently broken.
+        Only the status of the unit running the current hook can be reported, so
+        other units correct themselves on their next hook (e.g. update-status).
+        """
+        if self.app.planned_units() > 1:
+            event.add_status(ops.BlockedStatus(MULTIPLE_UNITS_MESSAGE))
+        elif self.unit.status == ops.BlockedStatus(MULTIPLE_UNITS_MESSAGE):
+            # Scaled back down: clear the guard's own block without clobbering
+            # a status set for any other reason.
+            event.add_status(ops.ActiveStatus())
 
     def _on_install(self, event: ops.InstallEvent):
         """Install the workload on the machine."""
