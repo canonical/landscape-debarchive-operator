@@ -22,6 +22,10 @@ logger = logging.getLogger(__name__)
 HAPROXY_ROUTE_RELATION = "debarchive-haproxy-route"
 DEBARCHIVE_ROUTE_PREFIX = "/debarchive"
 DEBARCHIVE_PATH_REWRITE = r"%[path,regsub(^/debarchive/?,/)]"
+MULTIPLE_UNITS_MESSAGE = (
+    "debarchive does not support multiple units; "
+    "remove extra units to unblock (juju remove-unit ...)"
+)
 
 
 class DebarchiveOperatorCharm(ops.CharmBase):
@@ -32,12 +36,15 @@ class DebarchiveOperatorCharm(ops.CharmBase):
     def __init__(self, framework: ops.Framework):
         super().__init__(framework)
 
-        self._stored.set_default(hostname=None, secret_token=None)
+        self._stored.set_default(
+            hostname=None, secret_token=None, services_stopped_for_scale=False
+        )
 
         self.database = DatabaseRequires(
             self, relation_name="database", database_name="debarchive"
         )
 
+        framework.observe(self.on.collect_unit_status, self._on_collect_unit_status)
         framework.observe(self.on.install, self._on_install)
         framework.observe(self.on.start, self._on_start)
         framework.observe(self.on.upgrade_charm, self._on_upgrade_charm)
@@ -81,6 +88,52 @@ class DebarchiveOperatorCharm(ops.CharmBase):
             return None
 
         return str(bind_address) if bind_address else None
+
+    def _on_collect_unit_status(self, event: ops.CollectStatusEvent) -> None:
+        """Block the unit while the application is scaled beyond a single unit.
+
+        debarchive has no HA support: packages live on the unit's filesystem and
+        units do not coordinate, so a multi-unit deployment is silently broken.
+        Only the status of the unit running the current hook can be reported, so
+        other units correct themselves on their next hook (e.g. update-status).
+
+        While blocked, the snap services are stopped so the extra units do not
+        serve traffic; they are started again once scaled back to one unit.
+        """
+        if self.app.planned_units() > 1:
+            self._stop_services_for_scale()
+            event.add_status(ops.BlockedStatus(MULTIPLE_UNITS_MESSAGE))
+            return
+
+        self._start_services_after_scale()
+        if self.unit.status == ops.BlockedStatus(MULTIPLE_UNITS_MESSAGE):
+            # Scaled back down: clear the guard's own block without clobbering
+            # a status set for any other reason.
+            event.add_status(ops.ActiveStatus())
+
+    def _stop_services_for_scale(self) -> None:
+        """Stop the snap services while the application has multiple units.
+
+        Called on every hook while blocked, so services started by other hooks
+        (e.g. install or a snap refresh) are stopped again.
+        """
+        try:
+            debarchive.stop_services()
+        except (snap.SnapError, snap.SnapNotFoundError):
+            logger.exception("failed to stop debarchive snap services")
+            return
+        self._stored.services_stopped_for_scale = True
+
+    def _start_services_after_scale(self) -> None:
+        """Start the snap services if they were stopped by the multi-unit guard."""
+        if not self._stored.services_stopped_for_scale:
+            return
+        try:
+            debarchive.start_services()
+        except (snap.SnapError, snap.SnapNotFoundError):
+            logger.exception("failed to start debarchive snap services")
+            return
+        self._stored.services_stopped_for_scale = False
 
     def _on_install(self, event: ops.InstallEvent):
         """Install the workload on the machine."""
@@ -168,6 +221,10 @@ class DebarchiveOperatorCharm(ops.CharmBase):
 
     def _on_restart_snap_action(self, event: ops.ActionEvent) -> None:
         """Restart debarchive snap services."""
+        if self.app.planned_units() > 1:
+            event.fail(MULTIPLE_UNITS_MESSAGE)
+            return
+
         try:
             debarchive.restart()
         except (snap.SnapError, snap.SnapNotFoundError) as e:
