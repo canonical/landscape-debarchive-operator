@@ -244,6 +244,22 @@ def restart() -> None:
     debarchive_snap.restart()
 
 
+def stop_services() -> None:
+    """Stop and disable debarchive snap services so they stay down across reboots."""
+    debarchive_snap = snap.SnapCache()[DEBARCHIVE_SNAP_NAME]
+    if not debarchive_snap.present:
+        return
+    debarchive_snap.stop(disable=True)
+
+
+def start_services() -> None:
+    """Enable and start debarchive snap services."""
+    debarchive_snap = snap.SnapCache()[DEBARCHIVE_SNAP_NAME]
+    if not debarchive_snap.present:
+        return
+    debarchive_snap.start(enable=True)
+
+
 def set_secret_token(content: dict[str, str]) -> None:
     """Set the jwt secret token in the snap configuration."""
     secret_token = content["secret-token"]

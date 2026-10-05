@@ -84,6 +84,14 @@ class TestCharmInstallAndStartup:
 
 
 class TestSingleUnitGuard:
+    @pytest.fixture(autouse=True)
+    def service_mocks(self, monkeypatch: pytest.MonkeyPatch) -> tuple[MagicMock, MagicMock]:
+        stop_services = MagicMock()
+        start_services = MagicMock()
+        monkeypatch.setattr("charm.debarchive.stop_services", stop_services)
+        monkeypatch.setattr("charm.debarchive.start_services", start_services)
+        return stop_services, start_services
+
     @pytest.mark.parametrize("event_name", ["update_status", "start", "config_changed"])
     def test_multiple_units_blocks(self, monkeypatch: pytest.MonkeyPatch, event_name: str):
         """Test that scaling beyond one unit blocks the unit on any event."""
@@ -123,6 +131,88 @@ class TestSingleUnitGuard:
         state_out = ctx.run(ctx.on.update_status(), dataclasses.replace(blocked, planned_units=1))
 
         assert state_out.unit_status == testing.ActiveStatus()
+
+    def test_multiple_units_stops_services(self, service_mocks: tuple[MagicMock, MagicMock]):
+        """Test that blocking on multiple units stops the snap services."""
+        stop_services, start_services = service_mocks
+        ctx = testing.Context(DebarchiveOperatorCharm)
+
+        ctx.run(ctx.on.update_status(), testing.State(planned_units=2))
+
+        stop_services.assert_called_once_with()
+        start_services.assert_not_called()
+
+    def test_scale_down_starts_services(self, service_mocks: tuple[MagicMock, MagicMock]):
+        """Test that scaling back to one unit restarts services the guard stopped."""
+        stop_services, start_services = service_mocks
+        ctx = testing.Context(DebarchiveOperatorCharm)
+
+        blocked = ctx.run(ctx.on.update_status(), testing.State(planned_units=2))
+        unblocked = ctx.run(ctx.on.update_status(), dataclasses.replace(blocked, planned_units=1))
+        start_services.assert_called_once_with()
+
+        # Services are only started once, on the transition out of the block.
+        ctx.run(ctx.on.update_status(), unblocked)
+        start_services.assert_called_once_with()
+        stop_services.assert_called_once_with()
+
+    def test_scale_down_starts_services_when_status_overwritten(
+        self, monkeypatch: pytest.MonkeyPatch, service_mocks: tuple[MagicMock, MagicMock]
+    ):
+        """Test services restart even if a handler replaced the blocked status."""
+        _, start_services = service_mocks
+        monkeypatch.setattr("charm.debarchive.configure", MagicMock())
+        ctx = testing.Context(DebarchiveOperatorCharm)
+
+        blocked = ctx.run(ctx.on.update_status(), testing.State(planned_units=2))
+        ctx.run(ctx.on.config_changed(), dataclasses.replace(blocked, planned_units=1))
+
+        start_services.assert_called_once_with()
+
+    def test_single_unit_does_not_touch_services(self, service_mocks: tuple[MagicMock, MagicMock]):
+        """Test that a single-unit deployment never stops or starts services."""
+        stop_services, start_services = service_mocks
+        ctx = testing.Context(DebarchiveOperatorCharm)
+
+        ctx.run(ctx.on.update_status(), testing.State(planned_units=1))
+
+        stop_services.assert_not_called()
+        start_services.assert_not_called()
+
+    def test_stop_services_failure_still_blocks(self, service_mocks: tuple[MagicMock, MagicMock]):
+        """Test that a snap failure while stopping services does not break the hook."""
+        stop_services, _ = service_mocks
+        stop_services.side_effect = snap.SnapError("snapd unavailable")
+        ctx = testing.Context(DebarchiveOperatorCharm)
+
+        state_out = ctx.run(ctx.on.update_status(), testing.State(planned_units=2))
+
+        assert state_out.unit_status == testing.BlockedStatus(MULTIPLE_UNITS_MESSAGE)
+
+    def test_start_services_failure_retries(self, service_mocks: tuple[MagicMock, MagicMock]):
+        """Test that a failed start is retried on the next hook."""
+        _, start_services = service_mocks
+        start_services.side_effect = snap.SnapError("snapd unavailable")
+        ctx = testing.Context(DebarchiveOperatorCharm)
+
+        blocked = ctx.run(ctx.on.update_status(), testing.State(planned_units=2))
+        failed = ctx.run(ctx.on.update_status(), dataclasses.replace(blocked, planned_units=1))
+
+        start_services.side_effect = None
+        ctx.run(ctx.on.update_status(), failed)
+
+        assert start_services.call_count == 2
+
+    def test_restart_snap_action_blocked(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that restart-snap refuses to start services while blocked."""
+        restart = MagicMock()
+        monkeypatch.setattr("charm.debarchive.restart", restart)
+        ctx = testing.Context(DebarchiveOperatorCharm)
+
+        with pytest.raises(testing.ActionFailed, match="does not support multiple units"):
+            ctx.run(ctx.on.action("restart-snap"), testing.State(planned_units=2))
+
+        restart.assert_not_called()
 
 
 class TestCharmUpgrade:
@@ -743,6 +833,44 @@ class TestDebarchiveConfig:
 
         with pytest.raises(snap.SnapNotFoundError):
             debarchive.restart()
+
+    def test_stop_services(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that stop_services stops and disables the snap services."""
+        mock_snap = MagicMock()
+        mock_snap.present = True
+        mock_cache = MagicMock()
+        mock_cache.__getitem__.return_value = mock_snap
+        monkeypatch.setattr("debarchive.snap.SnapCache", lambda: mock_cache)
+
+        debarchive.stop_services()
+
+        mock_snap.stop.assert_called_once_with(disable=True)
+
+    def test_start_services(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that start_services enables and starts the snap services."""
+        mock_snap = MagicMock()
+        mock_snap.present = True
+        mock_cache = MagicMock()
+        mock_cache.__getitem__.return_value = mock_snap
+        monkeypatch.setattr("debarchive.snap.SnapCache", lambda: mock_cache)
+
+        debarchive.start_services()
+
+        mock_snap.start.assert_called_once_with(enable=True)
+
+    def test_services_snap_not_present(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that starting/stopping services is a no-op when the snap is absent."""
+        mock_snap = MagicMock()
+        mock_snap.present = False
+        mock_cache = MagicMock()
+        mock_cache.__getitem__.return_value = mock_snap
+        monkeypatch.setattr("debarchive.snap.SnapCache", lambda: mock_cache)
+
+        debarchive.stop_services()
+        debarchive.start_services()
+
+        mock_snap.stop.assert_not_called()
+        mock_snap.start.assert_not_called()
 
     def test_configure_database(self, monkeypatch: pytest.MonkeyPatch):
         """Test that configure_database sets the correct snap keys."""
