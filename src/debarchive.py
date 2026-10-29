@@ -19,7 +19,6 @@ AMD64 = "amd64"
 ARM64 = "arm64"
 DEBARCHIVE_SNAP_NAME = "landscape-debarchive"
 DEBARCHIVE_SERVICE_NAME = "debarchive"
-DEBARCHIVE_SNAP_CHANNEL = "stable"
 
 
 def _load_snap_revisions() -> dict[str, str]:
@@ -55,7 +54,7 @@ def get_architecture() -> str:
 def _snaps_to_install() -> list[tuple[str, dict[str, str]]]:
     """Build the list of snaps to install, pinned to this architecture's revision."""
     revision = DEBARCHIVE_SNAP_REVISIONS[get_architecture()]
-    return [(DEBARCHIVE_SNAP_NAME, {"channel": DEBARCHIVE_SNAP_CHANNEL, "revision": revision})]
+    return [(DEBARCHIVE_SNAP_NAME, {"revision": revision})]
 
 
 SNAPS_TO_INSTALL = _snaps_to_install()
@@ -100,7 +99,6 @@ def _install_snap_packages(refresh: bool = False) -> None:
                     snap_package.unhold()
                 snap_package.ensure(
                     snap.SnapState.Latest,
-                    channel=snap_version.get("channel", ""),
                     revision=snap_version.get("revision"),
                 )
 
@@ -202,10 +200,24 @@ def _set_snap_config_if_changed(debarchive_snap: snap.Snap, config: dict[str, st
     changed_config = {
         key: desired_value
         for key, desired_value in config.items()
-        if not _snap_config_matches(debarchive_snap.get(key), desired_value)
+        if not _snap_config_matches(_get_snap_config_value(debarchive_snap, key), desired_value)
     }
     if changed_config:
         debarchive_snap.set(changed_config)
+
+
+def _get_snap_config_value(debarchive_snap: snap.Snap, key: str) -> Any:
+    """Return the current value of a snap config key, or None if it can't be read.
+
+    `snap get` exits non-zero when the key has never been set. Rather than parse
+    snap's error text, any read failure is treated as "not set" so the value is
+    written; if snapd is genuinely failing, the subsequent `snap set` raises.
+    """
+    try:
+        return debarchive_snap.get(key)
+    except snap.SnapError as e:
+        logger.debug("Unable to read snap config %s, treating as unset: %s", key, e)
+        return None
 
 
 def _snap_config_matches(current_value: Any, desired_value: str) -> bool:

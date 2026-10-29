@@ -25,15 +25,13 @@ class TestCharmInstallAndStartup:
         monkeypatch.setattr(
             debarchive,
             "SNAPS_TO_INSTALL",
-            [(debarchive.DEBARCHIVE_SNAP_NAME, {"channel": "stable", "revision": "341"})],
+            [(debarchive.DEBARCHIVE_SNAP_NAME, {"revision": "404"})],
         )
 
         state_in = testing.State()
         _ = ctx.run(ctx.on.install(), state_in)
 
-        mock_snap.ensure.assert_called_once_with(
-            snap.SnapState.Latest, channel="stable", revision="341"
-        )
+        mock_snap.ensure.assert_called_once_with(snap.SnapState.Latest, revision="404")
         # The snap is pinned to a specific revision, so it is held after install.
         mock_snap.hold.assert_called_once_with()
 
@@ -366,6 +364,35 @@ class TestCharmConfigChanged:
 
         assert state_out.unit_status == testing.BlockedStatus("Failed to apply configuration")
 
+    def test_set_config_when_option_cannot_be_read(self):
+        """Test that a failed read of a snap config option results in it being set."""
+        mock_snap = MagicMock()
+        mock_snap.get.side_effect = snap.SnapError("any error message")
+
+        debarchive._set_snap_config_if_changed(mock_snap, {"deb.archive.server.host": "10.0.0.1"})
+
+        mock_snap.set.assert_called_once_with({"deb.archive.server.host": "10.0.0.1"})
+
+    def test_set_config_raises_when_set_fails(self):
+        """Test that a genuine snapd failure still surfaces from the set call."""
+        mock_snap = MagicMock()
+        mock_snap.get.side_effect = snap.SnapError("snapd is unavailable")
+        mock_snap.set.side_effect = snap.SnapError("snapd is unavailable")
+
+        with pytest.raises(snap.SnapError):
+            debarchive._set_snap_config_if_changed(
+                mock_snap, {"deb.archive.server.host": "10.0.0.1"}
+            )
+
+    def test_set_config_skips_unchanged_values(self):
+        """Test that values already matching the desired config are not set again."""
+        mock_snap = MagicMock()
+        mock_snap.get.return_value = "10.0.0.1"
+
+        debarchive._set_snap_config_if_changed(mock_snap, {"deb.archive.server.host": "10.0.0.1"})
+
+        mock_snap.set.assert_not_called()
+
     def test_config_changed_invalid_log_level(self):
         """Test that unsupported log levels put the unit into BlockedStatus."""
         ctx = testing.Context(DebarchiveOperatorCharm)
@@ -446,8 +473,8 @@ class TestDebarchiveArchitecture:
     @pytest.mark.parametrize(
         ("machine", "expected_revision"),
         [
-            ("x86_64", "341"),
-            ("aarch64", "340"),
+            ("x86_64", "404"),
+            ("aarch64", "403"),
         ],
     )
     def test_snaps_to_install_uses_architecture_revision(
@@ -459,7 +486,7 @@ class TestDebarchiveArchitecture:
         assert debarchive._snaps_to_install() == [
             (
                 debarchive.DEBARCHIVE_SNAP_NAME,
-                {"channel": debarchive.DEBARCHIVE_SNAP_CHANNEL, "revision": expected_revision},
+                {"revision": expected_revision},
             )
         ]
 
@@ -568,7 +595,7 @@ class TestDebarchiveRefresh:
         monkeypatch.setattr(
             debarchive,
             "SNAPS_TO_INSTALL",
-            [("landscape-debarchive", {"channel": "beta", "revision": "256"})],
+            [("landscape-debarchive", {"revision": "256"})],
         )
 
         mock_snap = MagicMock()
@@ -582,9 +609,7 @@ class TestDebarchiveRefresh:
         debarchive.refresh()
 
         mock_snap.unhold.assert_called_once_with()
-        mock_snap.ensure.assert_called_once_with(
-            snap.SnapState.Latest, channel="beta", revision="256"
-        )
+        mock_snap.ensure.assert_called_once_with(snap.SnapState.Latest, revision="256")
         mock_snap.hold.assert_called_once_with()
 
     def test_refresh_skips_unhold_when_not_held(self, monkeypatch: pytest.MonkeyPatch):
@@ -592,7 +617,7 @@ class TestDebarchiveRefresh:
         monkeypatch.setattr(
             debarchive,
             "SNAPS_TO_INSTALL",
-            [("landscape-debarchive", {"channel": "beta", "revision": "256"})],
+            [("landscape-debarchive", {"revision": "256"})],
         )
 
         mock_snap = MagicMock()
@@ -606,9 +631,7 @@ class TestDebarchiveRefresh:
         debarchive.refresh()
 
         mock_snap.unhold.assert_not_called()
-        mock_snap.ensure.assert_called_once_with(
-            snap.SnapState.Latest, channel="beta", revision="256"
-        )
+        mock_snap.ensure.assert_called_once_with(snap.SnapState.Latest, revision="256")
         mock_snap.hold.assert_called_once_with()
 
     def test_refresh_ensures_even_when_present(self, monkeypatch: pytest.MonkeyPatch):
@@ -616,7 +639,7 @@ class TestDebarchiveRefresh:
         monkeypatch.setattr(
             debarchive,
             "SNAPS_TO_INSTALL",
-            [("landscape-debarchive", {"channel": "beta", "revision": "256"})],
+            [("landscape-debarchive", {"revision": "256"})],
         )
 
         mock_snap = MagicMock()
@@ -636,7 +659,7 @@ class TestDebarchiveRefresh:
         monkeypatch.setattr(
             debarchive,
             "SNAPS_TO_INSTALL",
-            [("landscape-debarchive", {"channel": "beta", "revision": "256"})],
+            [("landscape-debarchive", {"revision": "256"})],
         )
 
         mock_cache = MagicMock()
