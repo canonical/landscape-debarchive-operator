@@ -26,12 +26,12 @@ checkout:
   - fetch-depth: 0
   # Second checkout: the shared docs repo where this bot maintains its
   # release-notes island in the single shared changelog PR.
-  # LANDSCAPE_DOCS_TOKEN is used only to fetch refs at setup; contents-read
-  # on the docs repo is enough.
+  # canonical/landscape-documentation is public, so the checkout needs no
+  # token; only the push-to-pull-request-branch handler below uses
+  # LANDSCAPE_DOCS_TOKEN (pushing still requires it).
   - repository: canonical/landscape-documentation
     path: ./landscape-documentation
     fetch: ["*"]
-    github-token: ${{ secrets.LANDSCAPE_DOCS_TOKEN }}
 
 engine:
   id: copilot
@@ -56,6 +56,7 @@ safe-outputs:
     team-reviewers: [canonical/landscape]
     draft: false
     if-no-changes: ignore
+    max: 1 # exactly one own-repo changelog PR per run
     preserve-branch-name: true
     # Handles the lifecycle where the previous changelog PR was merged and its
     # branch still exists.
