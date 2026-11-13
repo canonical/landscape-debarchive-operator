@@ -1,5 +1,5 @@
 ---
-# Biweekly changelog PR bot (GitHub Agentic Workflow).
+# Weekly changelog PR bot (GitHub Agentic Workflow).
 #
 # This is the gh-aw SOURCE file. After editing, regenerate the compiled
 # GitHub Actions workflow with:
@@ -9,10 +9,9 @@
 # and commit the generated `.github/workflows/changelog-bot.lock.yml` alongside it.
 
 on:
-  # Cron cannot express "every other Saturday", so we fire every Saturday at
-  # around 12:00 UTC and the prompt gates on ISO-week parity (see the body below).
+  # Fire every Saturday at around 12:00 UTC.
   schedule: weekly on saturday around 12:00 UTC
-  # Allow maintainers to trigger a run on demand (ignores the biweekly gate).
+  # Allow maintainers to trigger a run on demand.
   workflow_dispatch:
 
 permissions:
@@ -84,7 +83,7 @@ safe-outputs:
     max: 1
 ---
 
-# Biweekly changelog update
+# Weekly changelog update
 
 You maintain the changelog for the landscape-debarchive charm. Your job is to draft a new changelog section summarizing recent user-facing changes and open a pull request with it.
 
@@ -93,18 +92,9 @@ You maintain the changelog for the landscape-debarchive charm. Your job is to dr
 - In this repository, the only file you ever change is `CHANGELOG.md`. This is mechanically enforced by the pull-request handler: `allowed-files` rejects any other path.
 - NEVER edit or delete existing `CHANGELOG.md` entries — only prepend new dated sections. If an existing entry looks wrong, flag it under `Changelog entries to review` instead.
 
-## Biweekly gate
-
-This workflow is scheduled every Saturday but should only act every **other** Saturday. Releases publish on **odd** ISO weeks.
-
-This run was triggered by the `${{ github.event_name }}` event. Use that value literally to decide whether the gate applies:
-
-1. If the triggering event is `workflow_dispatch`, always proceed regardless of the week number (manual runs bypass the biweekly gate entirely).
-2. Otherwise (a `schedule` run), run `date +%V` to get the current ISO week number. If that week number is **even**, stop immediately and make no changes — do not open a pull request. Only proceed on **odd** weeks.
-
 ## Gather the commits
 
-1. The scan window is time-based: list the commits from the last four weeks with `git log --since="4 weeks ago" --no-merges --pretty=%H%x09%s`. `main` is squash-merged, so each merged PR is a single commit on this list. Do NOT anchor on the last commit that touched `CHANGELOG.md`: anyone can edit the changelog, so a changelog anchor would silently treat undocumented commits as covered whenever an unrelated changelog edit lands. Four weeks against a biweekly schedule gives two weeks of overlap with the previous run, so omissions leapfrogged by later merges are still caught; the deduplication rules below prevent double-filing.
+1. The scan window is time-based: list the commits from the last four weeks with `git log --since="4 weeks ago" --no-merges --pretty=%H%x09%s`. `main` is squash-merged, so each merged PR is a single commit on this list. Do NOT anchor on the last commit that touched `CHANGELOG.md`: anyone can edit the changelog, so a changelog anchor would silently treat undocumented commits as covered whenever an unrelated changelog edit lands. Four weeks against a weekly schedule gives three weeks of overlap with the previous run, so omissions leapfrogged by later merges are still caught; the deduplication rules below prevent double-filing.
 2. Skip any commit whose subject has no trailing pull request reference ` (#1234)`. Such commits cannot carry the ` (#1234)` bullet marker the deduplication relies on, so they can never be filed safely; if one looks user-facing, mention it in the PR body under `Changelog entries to review` instead of filing it.
 3. Deduplicate the rest by pull request number. For each commit, extract its PR number `<N>` from the trailing ` (#1234)` reference in the subject. Skip the commit if ANY of the following hold:
    a. Its own commit added a NON-EMPTY changelog entry: run `git show --format= -- CHANGELOG.md <commit>` — if the diff adds one or more bullet lines (lines starting with `- `), the author documented the change themselves and it counts as coverage. If the commit touched `CHANGELOG.md` without adding any bullet (e.g. only a heading or whitespace), it is NOT coverage: do not file an entry for it either (an empty section can be a deliberate choice), and flag it in the review section below instead.
