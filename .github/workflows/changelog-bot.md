@@ -14,6 +14,9 @@ on:
   # Allow maintainers to trigger a run on demand.
   workflow_dispatch:
 
+runs-on: [self-hosted, noble, amd64]
+runs-on-slim: self-hosted
+
 permissions:
   contents: read
 
@@ -60,6 +63,9 @@ tools:
 # read+write on both repos. Every handler below inherits it.
 safe-outputs:
   github-token: ${{ secrets.LANDSCAPE_CHANGELOG_TOKEN }}
+  runs-on: self-hosted
+  threat-detection:
+    runs-on: [self-hosted, noble, amd64]
   create-pull-request:
     title-prefix: "build: "
     labels: [changelog, automation]
