@@ -26,8 +26,7 @@ checkout:
   # Second checkout: the shared docs repo where this bot maintains its
   # release-notes island in the single shared changelog PR.
   # canonical/landscape-documentation is public, so the checkout needs no
-  # token; only the push-to-pull-request-branch handler below uses
-  # LANDSCAPE_DOCS_TOKEN (pushing still requires it).
+  # token; only the push to it needs credentials (see safe-outputs below).
   - repository: canonical/landscape-documentation
     path: ./landscape-documentation
     fetch: ["*"]
@@ -53,10 +52,14 @@ tools:
   edit:
 
 # The agent never pushes directly; its file edits are turned into a pull request.
-# Own-repo changelog PRs use the default GITHUB_TOKEN; only the docs-repo push
-# handler below needs a PAT (LANDSCAPE_DOCS_TOKEN, contents+pull-requests write
-# on canonical/landscape-documentation).
+# gh-aw binds the whole safe_outputs job to a single credential for all its git
+# checkouts and pushes (github/gh-aw#77580), so that one credential must be able
+# to write both this repo and canonical/landscape-documentation. The default
+# GITHUB_TOKEN cannot write to landscape-documentation, so the job runs on
+# LANDSCAPE_CHANGELOG_TOKEN, a fine-grained PAT with contents and pull-requests
+# read+write on both repos. Every handler below inherits it.
 safe-outputs:
+  github-token: ${{ secrets.LANDSCAPE_CHANGELOG_TOKEN }}
   create-pull-request:
     title-prefix: "build: "
     labels: [changelog, automation]
@@ -76,7 +79,7 @@ safe-outputs:
   push-to-pull-request-branch:
     target: "*"
     target-repo: canonical/landscape-documentation
-    github-token: ${{ secrets.LANDSCAPE_DOCS_TOKEN }}
+    github-token: ${{ secrets.LANDSCAPE_CHANGELOG_TOKEN }}
     required-labels: [changelog, automation]
     # Docs PR updates may only touch release-notes pages (including index.md).
     allowed-files: ["docs/reference/release-notes/*.md"]
