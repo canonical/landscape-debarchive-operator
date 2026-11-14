@@ -35,6 +35,25 @@ pre-steps:
     env:
       GH_TOKEN: ${{ github.token }}
 
+# The self-hosted runner image does not ship the Docker Compose plugin, so
+# AWF's `docker compose up -d` fails with "unknown shorthand flag: 'd' in -d"
+# and the agent exits 125. Install the plugin before the agent job's setup
+# scripts run (top-level steps run before the agent job's own setup).
+steps:
+  - name: Install Docker Compose plugin
+    run: |
+      if docker compose version >/dev/null 2>&1; then
+        echo "Docker Compose plugin already present, skipping install."
+        docker compose version
+        exit 0
+      fi
+      COMPOSE_VERSION="v5.5.0"
+      mkdir -p ~/.docker/cli-plugins
+      curl -fsSL "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-x86_64" \
+        -o ~/.docker/cli-plugins/docker-compose
+      chmod +x ~/.docker/cli-plugins/docker-compose
+      docker compose version
+
 # The runner image's Node is too old for gh-aw's runtime scripts ('Cannot find
 # module node:fs' in activation). Set up a modern Node for the activation job.
 jobs:
