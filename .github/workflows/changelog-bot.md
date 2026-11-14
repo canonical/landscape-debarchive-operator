@@ -63,6 +63,15 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "24"
+  # gh-aw's install_copilot_cli.sh uses --prefer-toolcache, which does not land
+  # the copilot binary on PATH on this self-hosted runner image, so the
+  # threat-detection job exits 127. Install the CLI globally with npm instead.
+  detection:
+    pre-steps:
+      - name: Install GitHub Copilot CLI
+        run: |
+          npm install -g @github/copilot@1.0.103
+          copilot --version
 
 permissions:
   contents: read
