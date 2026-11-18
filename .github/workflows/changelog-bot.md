@@ -63,11 +63,30 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "24"
+  # The detection job runs its own AWF install, which also brings the sandbox up
+  # with `docker compose`, so it needs the same Compose plugin. The top-level
+  # `steps:` block above only lands in the agent job, so install it here too;
+  # the script short-circuits when the plugin is already present. Detection is
+  # continue-on-error, so a missing plugin would otherwise fail silently while
+  # the overall run still reported success.
   # gh-aw's install_copilot_cli.sh uses --prefer-toolcache, which does not land
   # the copilot binary on PATH on this self-hosted runner image, so the
   # threat-detection job exits 127. Install the CLI globally with npm instead.
   detection:
     pre-steps:
+      - name: Install Docker Compose plugin
+        run: |
+          if docker compose version >/dev/null 2>&1; then
+            echo "Docker Compose plugin already present, skipping install."
+            docker compose version
+            exit 0
+          fi
+          COMPOSE_VERSION="v5.5.0"
+          mkdir -p ~/.docker/cli-plugins
+          curl -fsSL "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-x86_64" \
+            -o ~/.docker/cli-plugins/docker-compose
+          chmod +x ~/.docker/cli-plugins/docker-compose
+          docker compose version
       # The detection job runs its own AWF install, which needs gh >= 2.49
       # for 'gh attestation verify'; the self-hosted runner ships older and
       # the top-level pre-steps only cover the agent job.
