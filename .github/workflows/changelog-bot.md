@@ -8,6 +8,12 @@
 #
 # and commit the generated `.github/workflows/changelog-bot.lock.yml` alongside it.
 #
+# Requires gh-aw v1.3.0 exactly — verify with `gh aw version` before compiling.
+# v1.3.0 is what emits the commit-hash-pinned import reference (older compilers
+# leave the import floating on a branch) and what accepts the shared component's
+# two-slash OpenRouter model id; compiling this file with an older gh aw silently
+# rewrites the lockfile and drops both, so check the version first.
+#
 # The shared plumbing (engine, runner setup, gh/node/compose installs, threat
 # detection, docs push handler) comes from the shared component imported below.
 # What stays here is only what differs for this repo: the trigger, the runners,
@@ -68,7 +74,7 @@ You maintain the changelog for the landscape-debarchive charm. Your job is to dr
 1. The scan window is time-based: list the commits from the last four weeks against the repository's default branch, not the ref this run was dispatched on: `git log --since="4 weeks ago" --no-merges --pretty=%H%x09%s origin/main`. Always use `origin/main` for the range — a `workflow_dispatch` run may check out a bot or feature branch whose own commits are automation churn, and those must never be classified as product changes. If `origin/main` is not present locally, use the checked-out HEAD and say so in the run output. `main` is squash-merged, so each merged PR is a single commit on this list. Do NOT anchor on the last commit that touched `CHANGELOG.md`: anyone can edit the changelog, so a changelog anchor would silently treat undocumented commits as covered whenever an unrelated changelog edit lands. Four weeks against a weekly schedule gives three weeks of overlap with the previous run, so omissions leapfrogged by later merges are still caught; the deduplication rules below prevent double-filing.
 2. Skip any commit whose subject has no trailing pull request reference ` (#1234)`. Such commits cannot carry the ` (#1234)` bullet marker the deduplication relies on, so they can never be filed safely; if one looks user-facing, mention it in the PR body under `Changelog entries to review` instead of filing it.
 3. Deduplicate the rest by pull request number. For each commit, extract its PR number `<N>` from the trailing ` (#1234)` reference in the subject. Skip the commit if ANY of the following hold:
-   a. Its own commit added a NON-EMPTY changelog entry: run `git show --format= <commit> -- CHANGELOG.md` — if the diff adds one or more bullet lines (lines starting with `- `), the author documented the change themselves and it counts as coverage. If the commit touched `CHANGELOG.md` without adding any bullet (e.g. only a heading or whitespace), it is NOT coverage: do not file an entry for it either (an empty section can be a deliberate choice), and flag it in the review section below instead.
+   a. Its own commit added a NON-EMPTY changelog entry: run `git show --format= <commit> -- CHANGELOG.md` and read only the ADDED side of that diff — lines beginning with `+`, ignoring the `+++ b/CHANGELOG.md` header. If any added line is itself a changelog bullet — that is, a line starting with `+- ` — the author documented the change themselves and it counts as coverage. Never count removed lines or the `--- a/CHANGELOG.md` header: `-` is both the diff's removal marker and the changelog's bullet marker, so a commit that only deletes, rewraps, or moves bullets adds none of its own and is not coverage. If the commit touched `CHANGELOG.md` without adding any bullet (e.g. only a heading or whitespace), it is NOT coverage: do not file an entry for it either (an empty section can be a deliberate choice), and flag it in the review section below instead.
    b. The changelog already covers it: search `CHANGELOG.md` in the working tree for the exact reference `#<N>` (match the full number — `#123` must not match `#1234`). Every bullet this bot writes ends with ` (#<N>)`, so an existing mention means this PR is already covered. Only committed entries on `main` are visible here — if the previous changelog PR is still open, its entries are not in the file yet.
 
 ## Select user-facing commits only
