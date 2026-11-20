@@ -53,12 +53,13 @@ safe-outputs:
     draft: false
     if-no-changes: ignore
     max: 1 # exactly one own-repo changelog PR per run
-    preserve-branch-name: true
     signed-commits: false
     # Handles the lifecycle where the previous changelog PR was merged and its
     # branch still exists.
     recreate-ref: true
     allowed-files: ["CHANGELOG.md"]
+  add-comment:
+    target: "*"
 ---
 # Weekly changelog update
 
